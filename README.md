@@ -23,9 +23,16 @@ pip install .
 ### Instruction Tuning
 
 Data:
-- [pClue](https://huggingface.co/datasets/wbbbbb/pclue) | [github](https://github.com/CLUEbenchmark/pCLUE)
+<!-- - [pCLUE](https://huggingface.co/datasets/wbbbbb/pclue) | [github](https://github.com/CLUEbenchmark/pCLUE)
 - [BELLE Generated Chat](https://huggingface.co/datasets/BelleGroup/generated_chat_0.4M)
-- [BELLE train_2M_CN](https://huggingface.co/datasets/BelleGroup/train_2M_CN)
+- [BELLE train_2M_CN](https://huggingface.co/datasets/BelleGroup/train_2M_CN) -->
+
+|Dataset | Size | Used |
+| - | - | - |
+| [pCLUE](https://huggingface.co/datasets/wbbbbb/pclue) | 1.2M | 0.6M |
+| [BELLE Generated Chat](https://huggingface.co/datasets/BelleGroup/generated_chat_0.4M) | 0.4M | 0.2M |
+| [BELLE train_2M_CN](https://huggingface.co/datasets/BelleGroup/train_2M_CN) | 2M | 1M |
+
 
 Run:
 ```bash

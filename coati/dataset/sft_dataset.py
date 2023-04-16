@@ -22,6 +22,7 @@ import torch.distributed as dist
 import transformers
 from torch.utils.data import Dataset
 from tqdm import tqdm
+from datasets import load_dataset
 
 from colossalai.logging import get_dist_logger
 
@@ -41,36 +42,99 @@ PROMPT_DICT = {
     "prompt_no_input": ("{instruction}\n\n"),
 }
 
+def pCLUE_preprocess(data_path: str, tokenizer: Callable, max_length: int = 512, max_datasets_size: int = 600000):
+    dataset = load_dataset(data_path, split='train')
+    
+    input_ids = []
+    input_lens = []
+    labels = []
+    for idx, data in enumerate(tqdm(dataset, disable=not is_rank_0(), mininterval=3, desc=f'preprocssing {data_path}')):
+        
+        input = data['input'] + data['target'] + tokenizer.eos_token
+        
+        inputs = tokenizer(input,
+                           max_length=max_length,
+                           padding="longest",
+                           truncation=True,
+                           return_tensors="pt")
+        if len(inputs['input_ids'][0]) < 20 or len(inputs['input_ids'][0]) >= max_length - 1:
+            continue
+        
+        input_len = len(tokenizer.tokenize(data['input']))
+        
+        input_ids.append(inputs['input_ids'][0])
+        input_lens.append(input_len)
+        
+        if max_datasets_size is not None and idx >= max_datasets_size:
+            break
+    
+    labels = copy.deepcopy(input_ids)
+    for label, source_len in zip(labels, input_lens):
+        label[:source_len] = IGNORE_INDEX
+    return input_ids, labels
 
-class SFTDataset(Dataset):
+def BELLE_preprocess(data_path: str, tokenizer: Callable, max_length: int = 512, max_datasets_size: int = 1000000, require_enter: bool = False):
+    dataset = load_dataset(data_path, split='train')
+    
+    input_ids = []
+    input_lens = []
+    labels = []
+    
+    enter = '\n' if require_enter else ''
+    for idx, data in enumerate(tqdm(dataset, disable=not is_rank_0(), mininterval=3, desc=f'preprocssing {data_path}')):
+        
+        input = data['instruction'] + enter + data['output'] + tokenizer.eos_token
+        
+        inputs = tokenizer(input,
+                           max_length=max_length,
+                           padding="longest",
+                           truncation=True,
+                           return_tensors="pt")
+        if len(inputs['input_ids'][0]) < 20 or len(inputs['input_ids'][0]) >= max_length - 1:
+            continue
+        
+        input_len = len(tokenizer.tokenize(data['instruction']))
+        
+        input_ids.append(inputs['input_ids'][0])
+        input_lens.append(input_len)
+        
+        if max_datasets_size is not None and idx >= max_datasets_size:
+            break
+
+    labels = copy.deepcopy(input_ids)
+    for label, source_len in zip(labels, input_lens):
+        label[:source_len] = IGNORE_INDEX
+    return input_ids, labels
+        
+class ITDataset(Dataset):
     """
-    Dataset for sft model
+    Dataset for instruction tuning
 
     Args:
-        dataset: dataset for supervised model
         tokenizer: tokenizer for supervised model
         max_length: max length of input
     """
 
-    def __init__(self, dataset, tokenizer: Callable, max_length: int = 512, max_datasets_size: int = None) -> None:
+    def __init__(self, tokenizer: Callable, max_length: int = 512) -> None:
         super().__init__()
         self.input_ids = []
-
-        for idx, data in enumerate(tqdm(dataset, disable=not is_rank_0())):
-            
-            prompt = data['prompt'] + data['completion'] + tokenizer.eos_token
-            
-            prompt_token = tokenizer(prompt,
-                                     max_length=max_length,
-                                     padding="longest",
-                                     truncation=True,
-                                     return_tensors="pt")
-
-            self.input_ids.append(prompt_token['input_ids'][0])
-            if max_datasets_size is not None and idx >= max_datasets_size:
-                break
+        self.labels = []
         
-        self.labels = copy.deepcopy(self.input_ids)
+        # input_ids, labels = pCLUE_preprocess('wbbbbb/pclue', tokenizer, max_length)
+        # self.input_ids += input_ids
+        # self.labels += labels
+        
+        input_ids, labels = BELLE_preprocess('BelleGroup/generated_chat_0.4M', tokenizer, max_length, 400000)
+        self.input_ids += input_ids
+        self.labels += labels
+
+        input_ids, labels = BELLE_preprocess('BelleGroup/train_2M_CN', tokenizer, max_length, 1000000, require_enter=True)
+        self.input_ids += input_ids
+        self.labels += labels
+        
+        input_ids, labels = pCLUE_preprocess('wbbbbb/pclue', tokenizer, max_length)
+        self.input_ids += input_ids
+        self.labels += labels
                 
     def __len__(self):
         length = len(self.input_ids)

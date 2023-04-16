@@ -6,7 +6,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import loralib as lora
 import torch
 import torch.distributed as dist
-from coati.dataset import DataCollatorForSupervisedDataset, SFTDataset, SupervisedDataset
+from coati.dataset import DataCollatorForSupervisedDataset, ITDataset, SupervisedDataset
 from coati.models.base import RewardModel
 from coati.models.bloom import BLOOMLM
 from coati.models.gpt import GPTLM
@@ -99,19 +99,14 @@ def train(args):
     logger = get_dist_logger()
 
     # configure dataset
-    if args.dataset == 'yizhongw/self_instruct':
-        train_data = load_dataset(args.dataset, 'super_natural_instructions', split='train')
-        eval_data = load_dataset(args.dataset, 'super_natural_instructions', split='test')
-
-        train_dataset = SFTDataset(train_data, tokenizer, max_len, max_datasets_size=args.max_datasets_size)
-        eval_dataset = SFTDataset(eval_data, tokenizer, max_len, max_datasets_size=args.max_datasets_size)
+    if args.instruction_tuning:
+        train_dataset = ITDataset(tokenizer, max_len)
 
     else:
         train_dataset = SupervisedDataset(tokenizer=tokenizer,
                                           data_path=args.dataset,
                                           max_datasets_size=args.max_datasets_size,
                                           max_length=max_len)
-        eval_dataset = None
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
 
     if dist.is_initialized() and dist.get_world_size() > 1:
@@ -121,16 +116,8 @@ def train(args):
                                            drop_last=True,
                                            rank=dist.get_rank(),
                                            num_replicas=dist.get_world_size())
-        if eval_dataset is not None:
-            eval_sampler = DistributedSampler(eval_dataset,
-                                              shuffle=False,
-                                              seed=42,
-                                              drop_last=False,
-                                              rank=dist.get_rank(),
-                                              num_replicas=dist.get_world_size())
     else:
         train_sampler = None
-        eval_sampler = None
 
     train_dataloader = DataLoader(train_dataset,
                                   shuffle=(train_sampler is None),
@@ -138,21 +125,12 @@ def train(args):
                                   batch_size=args.batch_size,
                                   collate_fn=data_collator,
                                   pin_memory=True)
-    if eval_dataset is not None:
-        eval_dataloader = DataLoader(eval_dataset,
-                                     shuffle=(eval_sampler is None),
-                                     sampler=eval_sampler,
-                                     batch_size=args.batch_size,
-                                     collate_fn=data_collator,
-                                     pin_memory=True)
-    else:
-        eval_dataloader = None
 
     trainer = SFTTrainer(model=model,
                          strategy=strategy,
                          optim=optim,
                          train_dataloader=train_dataloader,
-                         eval_dataloader=eval_dataloader,
+                         eval_dataloader=None,
                          batch_size=args.batch_size,
                          max_epochs=args.max_epochs,
                          accimulation_steps=args.accimulation_steps)
@@ -186,5 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('--log_interval', type=int, default=100, help="how many steps to log")
     parser.add_argument('--lr', type=float, default=5e-6)
     parser.add_argument('--accimulation_steps', type=int, default=8)
+    parser.add_argument('--instruction_tuning', action='store_true')
+
     args = parser.parse_args()
     train(args)
