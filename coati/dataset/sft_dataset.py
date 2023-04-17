@@ -12,10 +12,11 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+import os
 import copy
 import random
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Sequence
+from typing import Callable, Dict, Sequence, Optional, List
 
 import torch
 import torch.distributed as dist
@@ -50,9 +51,9 @@ def pCLUE_preprocess(data_path: str, tokenizer: Callable, max_length: int = 512,
     labels = []
     for idx, data in enumerate(tqdm(dataset, disable=not is_rank_0(), mininterval=3, desc=f'preprocssing {data_path}')):
         
-        input = data['input'] + data['target'] + tokenizer.eos_token
+        input_text = data['input'] + data['target'] + tokenizer.eos_token
         
-        inputs = tokenizer(input,
+        inputs = tokenizer(input_text,
                            max_length=max_length,
                            padding="longest",
                            truncation=True,
@@ -83,9 +84,9 @@ def BELLE_preprocess(data_path: str, tokenizer: Callable, max_length: int = 512,
     enter = '\n' if require_enter else ''
     for idx, data in enumerate(tqdm(dataset, disable=not is_rank_0(), mininterval=3, desc=f'preprocssing {data_path}')):
         
-        input = data['instruction'] + enter + data['output'] + tokenizer.eos_token
+        input_text = data['instruction'] + enter + data['output'] + tokenizer.eos_token
         
-        inputs = tokenizer(input,
+        inputs = tokenizer(input_text,
                            max_length=max_length,
                            padding="longest",
                            truncation=True,
@@ -124,15 +125,15 @@ class ITDataset(Dataset):
         # self.input_ids += input_ids
         # self.labels += labels
         
-        input_ids, labels = BELLE_preprocess('BelleGroup/generated_chat_0.4M', tokenizer, max_length, 400000)
+        input_ids, labels = BELLE_preprocess('BelleGroup/generated_chat_0.4M', tokenizer, max_length, 200000)
         self.input_ids += input_ids
         self.labels += labels
 
-        input_ids, labels = BELLE_preprocess('BelleGroup/train_2M_CN', tokenizer, max_length, 1000000, require_enter=True)
+        input_ids, labels = BELLE_preprocess('BelleGroup/train_2M_CN', tokenizer, max_length, 500000, require_enter=True)
         self.input_ids += input_ids
         self.labels += labels
         
-        input_ids, labels = pCLUE_preprocess('wbbbbb/pclue', tokenizer, max_length)
+        input_ids, labels = pCLUE_preprocess('wbbbbb/pclue', tokenizer, max_length, 300000)
         self.input_ids += input_ids
         self.labels += labels
                 
@@ -180,6 +181,104 @@ def preprocess(
     for label, source_len in zip(labels, sources_tokenized["input_ids_lens"]):
         label[:source_len] = IGNORE_INDEX
     return dict(input_ids=input_ids, labels=labels)
+
+
+def format_chat(dataset, input_key: str = 'instruction', output_key: str = 'output', is_chat: bool = False):
+    inputs = []
+    outputs = []
+
+    if is_chat:
+        for data in dataset:
+            formated_input = data[input_key].replace(' Assistant:', '\nAssistant:')
+            formated_input = formated_input.replace(r'Assistant:(?=\S+)', 'Assistant: ')
+            formated_input = formated_input.replace(r'Human:(?=\S+)', 'Human: ')
+            
+            formated_output = data[output_key][1:] if data[output_key].startswith(' ') else data[output_key]
+            inputs.append(formated_input)
+            outputs.append(formated_output)
+    else:
+        for data in dataset:
+            inputs.append(f'Human: {data[input_key].strip()}\nAssistant: ')
+            outputs.append(data[output_key])
+    return inputs, outputs
+    
+
+def chat_preprocess(inputs: List[str], outputs: List[str], tokenizer: Callable, max_length: int = 512, max_datasets_size: int = 1000000):
+    input_ids = []
+    input_lens = []
+    for idx, (inp, oup) in enumerate(tqdm(zip(inputs, outputs), disable=not is_rank_0(), mininterval=3)):
+        
+        input_text = inp + oup + tokenizer.eos_token
+        
+        inputs = tokenizer(input_text,
+                           max_length=max_length,
+                           padding="longest",
+                           truncation=True,
+                           return_tensors="pt")
+        if len(inputs['input_ids'][0]) < 20 or len(inputs['input_ids'][0]) >= max_length - 1:
+            continue
+        
+        input_len = len(tokenizer.tokenize(inp))
+        
+        input_ids.append(inputs['input_ids'][0])
+        input_lens.append(input_len)
+        
+        if max_datasets_size is not None and idx >= max_datasets_size:
+            break
+
+    labels = copy.deepcopy(input_ids)
+    for label, source_len in zip(labels, input_lens):
+        label[:source_len] = IGNORE_INDEX
+    return input_ids, labels
+
+class SFTDataset(Dataset):
+    """
+    Dataset for instruction tuning
+
+    Args:
+        tokenizer: tokenizer for supervised model
+        data_path: InstructionWild data path
+        max_length: max length of input
+    """
+
+    def __init__(self, tokenizer: Callable, max_length: int = 512, data_path: Optional[str] = None) -> None:
+        super().__init__()
+        self.input_ids = []
+        self.labels = []
+        
+        
+        belle_1M = load_dataset('BelleGroup/train_1M_CN', split='train')
+        inputs, outputs = format_chat(belle_1M, "instruction", "output")
+        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=100000)
+        self.input_ids += input_ids
+        self.labels += labels
+        
+        belle_mtchat = load_dataset('BelleGroup/multiturn_chat_0.8M', split='train')
+        inputs, outputs = format_chat(belle_mtchat, "instruction", "output", is_chat=True)
+        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=200000)
+        self.input_ids += input_ids
+        self.labels += labels
+        
+        if data_path is not None:
+            list_data_dict = jload(os.path.join(data_path, 'instinwild_ch.json'))
+            list_data_dict_en = jload(os.path.join(data_path, 'instinwild_en.json'))
+        
+            inputs, outputs = format_chat(list_data_dict, "instruction", "output")
+            input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=30000)
+            self.input_ids += input_ids
+            self.labels += labels
+            
+            inputs, outputs = format_chat(list_data_dict_en, "instruction", "output")
+            input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=30000)
+            self.input_ids += input_ids
+            self.labels += labels
+                
+    def __len__(self):
+        length = len(self.input_ids)
+        return length
+
+    def __getitem__(self, idx):
+        return dict(input_ids=self.input_ids[idx], labels=self.labels[idx])
 
 
 class SupervisedDataset(Dataset):

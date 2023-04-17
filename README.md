@@ -20,7 +20,8 @@ pip install .
 ```
 
 ## Training
-### Instruction Tuning
+### Instruction Tuning (Optional)
+This is optional, because we can use [bloomz](https://huggingface.co/bigscience/bloomz-1b7) directly.
 
 Data:
 <!-- - [pCLUE](https://huggingface.co/datasets/wbbbbb/pclue) | [github](https://github.com/CLUEbenchmark/pCLUE)
@@ -29,9 +30,9 @@ Data:
 
 |Dataset | Size | Used |
 | - | - | - |
-| [pCLUE](https://huggingface.co/datasets/wbbbbb/pclue) | 1.2M | 0.6M |
+| [pCLUE](https://huggingface.co/datasets/wbbbbb/pclue) | 1.2M | 0.3M |
 | [BELLE Generated Chat](https://huggingface.co/datasets/BelleGroup/generated_chat_0.4M) | 0.4M | 0.2M |
-| [BELLE train_2M_CN](https://huggingface.co/datasets/BelleGroup/train_2M_CN) | 2M | 1M |
+| [BELLE train_2M_CN](https://huggingface.co/datasets/BelleGroup/train_2M_CN) | 2M | 0.5M |
 
 
 Run:
@@ -40,10 +41,22 @@ bash scripts/train_instruction_tuning.sh
 ```
 
 ### SFT
-- [BELLE/1M](https://huggingface.co/datasets/BelleGroup/train_1M_CN)
-- [BELLE Multiturn Chat](https://huggingface.co/datasets/BelleGroup/multiturn_chat_0.8M)
-- [InstructionWild](https://github.com/XueFuzhao/InstructionWild)
 
+Data:
+
+|Dataset | Size | Used |
+| - | - | - |
+| [BELLE/1M](https://huggingface.co/datasets/BelleGroup/train_1M_CN) | 1M | 0.1M |
+| [BELLE Multiturn Chat](https://huggingface.co/datasets/BelleGroup/multiturn_chat_0.8M) | 0.8M | 0.2M |
+| [InstructionWild](https://github.com/XueFuzhao/InstructionWild) | 52k * 2 | 30k * 2 |
+
+format as
+```
+Human: [Instruction or Input]
+Assistant: [Output]
+```
+
+Run:
 ```bash
 bash scripts/train_sft.sh
 ```

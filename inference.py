@@ -61,7 +61,7 @@ def eval(args):
         temperature=args.temperature,
         top_k=args.top_k,
         top_p=args.top_p,
-        num_return_sequences=3,
+        num_return_sequences=args.num_return_sequences,
         early_stopping=True,
         no_repeat_ngram_size=1)
     # output = tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -86,5 +86,6 @@ if __name__ == '__main__':
     parser.add_argument('--temperature', type=float, default=0.7)
     parser.add_argument('--top_k', type=int, default=50)
     parser.add_argument('--top_p', type=float, default=None)
+    parser.add_argument('--num_return_sequences', type=int, default=3)
     args = parser.parse_args()
     eval(args)

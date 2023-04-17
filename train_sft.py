@@ -6,7 +6,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import loralib as lora
 import torch
 import torch.distributed as dist
-from coati.dataset import DataCollatorForSupervisedDataset, ITDataset, SupervisedDataset
+from coati.dataset import DataCollatorForSupervisedDataset, ITDataset, SFTDataset
 from coati.models.base import RewardModel
 from coati.models.bloom import BLOOMLM
 from coati.models.gpt import GPTLM
@@ -103,10 +103,11 @@ def train(args):
         train_dataset = ITDataset(tokenizer, max_len)
 
     else:
-        train_dataset = SupervisedDataset(tokenizer=tokenizer,
-                                          data_path=args.dataset,
-                                          max_datasets_size=args.max_datasets_size,
-                                          max_length=max_len)
+        train_dataset = SFTDataset(tokenizer, max_len, data_path=args.data_path)
+        # train_dataset = SupervisedDataset(tokenizer=tokenizer,
+        #                                   data_path=args.dataset,
+        #                                   max_datasets_size=args.max_datasets_size,
+        #                                   max_length=max_len)
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
 
     if dist.is_initialized() and dist.get_world_size() > 1:
@@ -153,7 +154,7 @@ if __name__ == '__main__':
                         default='naive')
     parser.add_argument('--model', choices=['gpt2', 'bloom', 'opt', 'llama'], default='bloom')
     parser.add_argument('--pretrain', type=str, default=None)
-    parser.add_argument('--dataset', type=str, default=None)
+    parser.add_argument('--data_path', type=str, default=None)
     parser.add_argument('--max_datasets_size', type=int, default=None)
     parser.add_argument('--save_path', type=str, default='output')
     parser.add_argument('--need_optim_ckpt', type=bool, default=False)
