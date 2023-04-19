@@ -13,27 +13,23 @@ from transformers import AutoModelForCausalLM
 def eval(args):
     # configure model
     if args.model == 'gpt2':
-        actor = GPTActor(pretrained=args.pretrain).to(torch.cuda.current_device())
+        actor = GPTActor(pretrained=args.model_path).to(torch.cuda.current_device())
     elif args.model == 'bloom':
-        actor = BLOOMActor(pretrained=args.pretrain).to(torch.cuda.current_device())
+        actor = BLOOMActor(pretrained=args.model_path).to(torch.cuda.current_device())
     elif args.model == 'opt':
-        actor = OPTActor(pretrained=args.pretrain).to(torch.cuda.current_device())
-    elif args.model == 'roberta':
-        actor = RoBERTaActor(pretrained=args.pretrain).to(torch.cuda.current_device())
+        actor = OPTActor(pretrained=args.model_path).to(torch.cuda.current_device())
     else:
         raise ValueError(f'Unsupported model "{args.model}"')
 
     # configure tokenizer
     if args.model == 'gpt2':
-        tokenizer = GPT2Tokenizer.from_pretrained(args.pretrain)
+        tokenizer = GPT2Tokenizer.from_pretrained(args.model_path)
         tokenizer.pad_token = tokenizer.eos_token
     elif args.model == 'bloom':
-        tokenizer = AutoTokenizer.from_pretrained(args.pretrain)
+        tokenizer = AutoTokenizer.from_pretrained(args.model_path)
         tokenizer.pad_token = tokenizer.eos_token
     elif args.model == 'opt':
-        tokenizer = AutoTokenizer.from_pretrained(args.pretrain)
-    elif args.model == 'roberta':
-        tokenizer = RobertaTokenizer.from_pretrained(args.pretrain)
+        tokenizer = AutoTokenizer.from_pretrained(args.model_path)
     else:
         raise ValueError(f'Unsupported model "{args.model}"')
 
@@ -52,7 +48,7 @@ def eval(args):
     #                          early_stopping=True)
     # output = tokenizer.batch_decode(outputs[0], skip_special_tokens=True)
 
-    model = AutoModelForCausalLM.from_pretrained(args.pretrain)
+    model = AutoModelForCausalLM.from_pretrained(args.model_path)
     model.to(torch.cuda.current_device())
     model.eval()
     outputs = model.generate(input_ids,
@@ -78,8 +74,6 @@ def eval(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='gpt2', choices=['gpt2', 'bloom', 'opt', 'roberta'])
-    # We suggest to use the pretrained model from HuggingFace, use pretrain to configure model
-    parser.add_argument('--pretrain', type=str, default=None)
     parser.add_argument('--model_path', type=str, default=None)
     parser.add_argument('--input', type=str, default='Question: How are you ? Answer:')
     parser.add_argument('--max_length', type=int, default=100)

@@ -74,12 +74,12 @@ class SFTTrainer(ABC):
         if is_rank_0():
             wandb.init(project="Coati", name=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
             wandb.watch(self.model)
-        total_loss = 0
+
         step_bar = tqdm(range(len(self.train_dataloader) // self.accimulation_steps * self.epochs),
                         desc=f'steps',
                         disable=not is_rank_0())
         for epoch in range(self.epochs):
-
+            total_loss = 0
 
             self.model.train()
             for batch_id, batch in enumerate(self.train_dataloader):
@@ -109,7 +109,7 @@ class SFTTrainer(ABC):
                     self.scheduler.step()
                     if is_rank_0():
                         wandb.log({
-                            "loss": total_loss / self.accimulation_steps,
+                            "loss": total_loss,
                             "lr": self.scheduler.get_last_lr()[0],
                             "epoch": epoch,
                             "batch_id": batch_id

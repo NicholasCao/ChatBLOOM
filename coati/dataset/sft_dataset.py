@@ -32,16 +32,6 @@ from .utils import is_rank_0, jload
 logger = get_dist_logger()
 
 IGNORE_INDEX = -100
-PROMPT_DICT = {
-    "prompt_input":
-        ("Below is an instruction that describes a task, paired with an input that provides further context. "
-         "Write a response that appropriately completes the request.\n\n"
-         "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:"),
-    # "prompt_no_input": ("Below is an instruction that describes a task. "
-    #                     "Write a response that appropriately completes the request.\n\n"
-    #                     "### Instruction:\n{instruction}\n\n### Response:"),
-    "prompt_no_input": ("{instruction}\n\n"),
-}
 
 def pCLUE_preprocess(data_path: str, tokenizer: Callable, max_length: int = 512, max_datasets_size: int = 600000):
     dataset = load_dataset(data_path, split='train')
@@ -189,25 +179,42 @@ def format_chat(dataset, input_key: str = 'instruction', output_key: str = 'outp
 
     if is_chat:
         for data in dataset:
-            formated_input = data[input_key].replace(' Assistant:', '\nAssistant:')
+            formated_input = data[input_key].replace('\n\n', '\n').replace(' Assistant:', '\n\nAssistant:')
             formated_input = formated_input.replace(r'Assistant:(?=\S+)', 'Assistant: ')
             formated_input = formated_input.replace(r'Human:(?=\S+)', 'Human: ')
             
             formated_output = data[output_key][1:] if data[output_key].startswith(' ') else data[output_key]
             inputs.append(formated_input)
-            outputs.append(formated_output)
+            outputs.append(formated_output.strip().replace('\n\n', '\n'))
     else:
         for data in dataset:
-            inputs.append(f'Human: {data[input_key].strip()}\nAssistant: ')
-            outputs.append(data[output_key])
+            formated_input = data[input_key].strip().replace('\n\n', '\n')
+            inputs.append(f'Human: {formated_input}\n\nAssistant: ')
+            outputs.append(data[output_key].strip().replace('\n\n', '\n'))
     return inputs, outputs
     
 
-def chat_preprocess(inputs: List[str], outputs: List[str], tokenizer: Callable, max_length: int = 512, max_datasets_size: int = 1000000):
+def chat_preprocess(inputs: List[str],
+                    outputs: List[str],
+                    tokenizer: Callable,
+                    max_length: int = 512,
+                    max_datasets_size: int = 1000000,
+                    short_text_len: int = 30,
+                    start: int = 0):
     input_ids = []
     input_lens = []
-    for idx, (inp, oup) in enumerate(tqdm(zip(inputs, outputs), disable=not is_rank_0(), mininterval=3)):
+    short_response_count = 0
+    count = 0
+
+    for inp, oup in tqdm(zip(inputs[start:], outputs[start:]), disable=not is_rank_0(), mininterval=3):
+        count += 1
         
+        # filter some short response
+        if len(tokenizer.tokenize(oup)) < short_text_len:
+            if short_response_count / max_datasets_size > 0.25 or random.random() < 0.5:
+                continue
+            short_response_count += 1
+
         input_text = inp + oup + tokenizer.eos_token
         
         inputs = tokenizer(input_text,
@@ -215,7 +222,8 @@ def chat_preprocess(inputs: List[str], outputs: List[str], tokenizer: Callable, 
                            padding="longest",
                            truncation=True,
                            return_tensors="pt")
-        if len(inputs['input_ids'][0]) < 20 or len(inputs['input_ids'][0]) >= max_length - 1:
+
+        if len(inputs['input_ids'][0]) < 20:
             continue
         
         input_len = len(tokenizer.tokenize(inp))
@@ -223,12 +231,15 @@ def chat_preprocess(inputs: List[str], outputs: List[str], tokenizer: Callable, 
         input_ids.append(inputs['input_ids'][0])
         input_lens.append(input_len)
         
-        if max_datasets_size is not None and idx >= max_datasets_size:
+        if max_datasets_size is not None and len(input_ids) >= max_datasets_size:
             break
 
     labels = copy.deepcopy(input_ids)
     for label, source_len in zip(labels, input_lens):
         label[:source_len] = IGNORE_INDEX
+    
+    logger.info(f"The data set is enumerated to {count}, short response rate = {short_response_count / len(input_ids)}")
+    
     return input_ids, labels
 
 class SFTDataset(Dataset):
@@ -246,10 +257,9 @@ class SFTDataset(Dataset):
         self.input_ids = []
         self.labels = []
         
-        
         belle_1M = load_dataset('BelleGroup/train_1M_CN', split='train')
         inputs, outputs = format_chat(belle_1M, "instruction", "output")
-        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=100000)
+        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=40000)
         self.input_ids += input_ids
         self.labels += labels
         
@@ -279,40 +289,6 @@ class SFTDataset(Dataset):
 
     def __getitem__(self, idx):
         return dict(input_ids=self.input_ids[idx], labels=self.labels[idx])
-
-
-class SupervisedDataset(Dataset):
-    """Dataset for supervised fine-tuning."""
-
-    def __init__(self, data_path: str, tokenizer: transformers.PreTrainedTokenizer, max_datasets_size: int = None, max_length: int = 512):
-        super(SupervisedDataset, self).__init__()
-        logger.info("Loading data...", ranks=[0])
-        list_data_dict = jload(data_path)
-        logger.info(f"Loaded {len(list_data_dict)} examples.", ranks=[0])
-
-        if max_datasets_size is not None:
-            logger.info(f"Limiting dataset to {max_datasets_size} examples.", ranks=[0])
-            list_data_dict = list_data_dict[:max_datasets_size]
-
-        logger.info("Formatting inputs...", ranks=[0])
-        prompt_input, prompt_no_input = PROMPT_DICT["prompt_input"], PROMPT_DICT["prompt_no_input"]
-        sources = [
-            prompt_input.format_map(example) if example.get("input", "") != "" else prompt_no_input.format_map(example)
-            for example in list_data_dict
-        ]
-        targets = [f"{example['output']}{tokenizer.eos_token}" for example in list_data_dict]
-
-        logger.info("Tokenizing inputs... This may take some time...", ranks=[0])
-        data_dict = preprocess(sources, targets, tokenizer, max_length)
-
-        self.input_ids = data_dict["input_ids"]
-        self.labels = data_dict["labels"]
-
-    def __len__(self):
-        return len(self.input_ids)
-
-    def __getitem__(self, i) -> Dict[str, torch.Tensor]:
-        return dict(input_ids=self.input_ids[i], labels=self.labels[i])
 
 
 @dataclass

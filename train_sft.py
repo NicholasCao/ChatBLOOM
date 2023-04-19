@@ -74,6 +74,8 @@ def train(args):
     else:
         raise ValueError(f'Unsupported model "{args.model}"')
     tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.truncation_side = 'left'
+    
     max_len = args.max_len
     if args.model == 'llama':
         tokenizer = prepare_llama_tokenizer_and_embedding(tokenizer, model)
@@ -156,7 +158,7 @@ if __name__ == '__main__':
     parser.add_argument('--pretrain', type=str, default=None)
     parser.add_argument('--data_path', type=str, default=None)
     parser.add_argument('--max_datasets_size', type=int, default=None)
-    parser.add_argument('--save_path', type=str, default='output')
+    parser.add_argument('--save_path', type=str, default='outputs/sft_model')
     parser.add_argument('--need_optim_ckpt', type=bool, default=False)
     parser.add_argument('--max_epochs', type=int, default=3)
     parser.add_argument('--batch_size', type=int, default=4)

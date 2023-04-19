@@ -19,8 +19,8 @@ def chat(args, model, tokenizer, history):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='bloom', choices=['gpt2', 'bloom', 'opt', 'roberta'])
-    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft-epoch3')
-    parser.add_argument('--max_length', type=int, default=256)
+    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft-epoch5')
+    parser.add_argument('--max_length', type=int, default=512)
     parser.add_argument('--temperature', type=float, default=0.8)
     parser.add_argument('--top_k', type=int, default=30)
     parser.add_argument('--top_p', type=float, default=0.9)
@@ -35,10 +35,10 @@ if __name__ == '__main__':
         tokenizer.pad_token = tokenizer.eos_token
     elif args.model == 'opt':
         tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-    elif args.model == 'roberta':
-        tokenizer = AutoTokenizer.from_pretrained(args.model_path)
     else:
         raise ValueError(f'Unsupported model "{args.model}"')
+    
+    tokenizer.truncation_side = 'left'
 
     model = AutoModelForCausalLM.from_pretrained(args.model_path)
     model.half()
@@ -57,7 +57,7 @@ if __name__ == '__main__':
             history = ''
             continue
 
-        history += f'Human: {inp}\nAssistant: '
+        history += f'Human: {inp}\n\nAssistant: '
         response = chat(args, model, tokenizer, history)
         print(f'Assistant: {response}')
     
