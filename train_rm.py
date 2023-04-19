@@ -1,9 +1,14 @@
 import argparse
+import random
 from random import randint
+import os
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import loralib as lora
 import torch
-from coati.dataset import HhRlhfDataset, RmStaticDataset
+from coati.dataset import HhRlhfDataset, RmStaticDataset, DataCollatorForRMDataset
+from coati.dataset.utils import jload
 from coati.models import LogExpLoss, LogSigLoss
 from coati.models.base import RewardModel
 from coati.models.bloom import BLOOMRM
@@ -17,13 +22,19 @@ from coati.trainer.strategies import ColossalAIStrategy, DDPStrategy, NaiveStrat
 from coati.utils import prepare_llama_tokenizer_and_embedding
 from datasets import load_dataset
 from torch.optim import Adam
+import torch.distributed as dist
 from transformers import AutoTokenizer, BloomTokenizerFast, DebertaV2Tokenizer, LlamaTokenizer, RobertaTokenizer
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
+from torch.utils.data.distributed import DistributedSampler
 
 from colossalai.nn.optimizer import HybridAdam
+from colossalai.logging import get_dist_logger
 
+from torch.utils.data import DataLoader
 
 def train(args):
+    logger = get_dist_logger()
+
     # configure strategy
     if args.strategy == 'naive':
         strategy = NaiveStrategy()
@@ -53,12 +64,6 @@ def train(args):
         else:
             raise ValueError(f'Unsupported model "{args.model}"')
 
-        if args.model_path is not None:
-            state_dict = torch.load(args.model_path)
-            model.load_state_dict(state_dict)
-
-    model = model.to(torch.float16)
-
     # configure tokenizer
     if args.model == 'gpt2':
         tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
@@ -83,9 +88,9 @@ def train(args):
 
     # configure optimizer
     if args.strategy.startswith('colossalai'):
-        optim = HybridAdam(model.parameters(), lr=5e-6)
+        optim = HybridAdam(model.parameters(), lr=args.lr)
     else:
-        optim = Adam(model.parameters(), lr=5e-6)
+        optim = Adam(model.parameters(), lr=args.lr)
 
     # configure loss function
     if args.loss_fn == 'log_sig':
@@ -96,41 +101,45 @@ def train(args):
         raise ValueError(f'Unsupported loss function "{args.loss_fn}"')
 
     # prepare for data and dataset
-    if args.subset is not None:
-        data = load_dataset(args.dataset, data_dir=args.subset)
-    else:
-        data = load_dataset(args.dataset)
+    train_data = jload(args.data_path)
 
-    if args.test:
-        train_data = data['train'].select(range(100))
-        eval_data = data['test'].select(range(10))
-    else:
-        train_data = data['train']
-        eval_data = data['test']
-    valid_data = data['test'].select((randint(0, len(eval_data) - 1) for _ in range(len(eval_data) // 5)))
+    random.shuffle(train_data)
 
-    if args.dataset == 'Dahoas/rm-static':
-        train_dataset = RmStaticDataset(train_data, tokenizer, max_len)
-        valid_dataset = RmStaticDataset(valid_data, tokenizer, max_len)
-        eval_dataset = RmStaticDataset(eval_data, tokenizer, max_len)
-    elif args.dataset == 'Anthropic/hh-rlhf':
-        train_dataset = HhRlhfDataset(train_data, tokenizer, max_len)
-        valid_dataset = HhRlhfDataset(valid_data, tokenizer, max_len)
-        eval_dataset = HhRlhfDataset(eval_data, tokenizer, max_len)
-    else:
-        raise ValueError(f'Unsupported dataset "{args.dataset}"')
+    eval_data = load_dataset('Anthropic/hh-rlhf', data_dir="harmless-base", split='test')
+    valid_data = train_data[:1000]
+    train_data = train_data[1000:]
+    # eval_data = eval_data.select((randint(0, len(eval_data) - 1) for _ in range(1000)))
+
+    train_dataset = HhRlhfDataset(train_data, tokenizer, max_len)
+    valid_dataset = HhRlhfDataset(valid_data, tokenizer, max_len)
+    eval_dataset = HhRlhfDataset(eval_data, tokenizer, max_len)
+
+    data_collator = DataCollatorForRMDataset(tokenizer=tokenizer)
+    
+    train_sampler = None
+    if dist.is_initialized() and dist.get_world_size() > 1:
+        train_sampler = DistributedSampler(train_dataset, shuffle=True, seed=42, drop_last=True)
+
+    train_dataloader = DataLoader(train_dataset,
+                                        shuffle=(train_sampler is None),
+                                        sampler=train_sampler,
+                                        batch_size=args.batch_size,
+                                        collate_fn=data_collator)
+    valid_dataloader = DataLoader(valid_dataset, batch_size=args.batch_size, collate_fn=data_collator)
+    eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size, collate_fn=data_collator)
 
     trainer = RewardModelTrainer(model=model,
                                  strategy=strategy,
                                  optim=optim,
                                  loss_fn=loss_fn,
-                                 train_dataset=train_dataset,
-                                 valid_dataset=valid_dataset,
-                                 eval_dataset=eval_dataset,
+                                 train_dataloader=train_dataloader,
+                                 valid_dataloader=valid_dataloader,
+                                 eval_dataloader=eval_dataloader,
                                  batch_size=args.batch_size,
-                                 max_epochs=args.max_epochs)
+                                 max_epochs=args.max_epochs,
+                                 accimulation_steps=args.accimulation_steps)
 
-    trainer.fit()
+    trainer.fit(logger)
     # save model checkpoint after fitting on only rank0
     trainer.save_model(path=args.save_path, only_rank0=True, tokenizer=tokenizer)
     # save optimizer checkpoint on all ranks
@@ -149,17 +158,14 @@ if __name__ == '__main__':
     parser.add_argument('--pretrain', type=str, default=None)
     parser.add_argument('--model_path', type=str, default=None)
     parser.add_argument('--need_optim_ckpt', type=bool, default=False)
-    parser.add_argument('--dataset',
-                        type=str,
-                        choices=['Anthropic/hh-rlhf', 'Dahoas/rm-static'],
-                        default='Dahoas/rm-static')
-    parser.add_argument('--subset', type=str, default=None)
-    parser.add_argument('--save_path', type=str, default='rm_ckpt')
+    parser.add_argument('--data_path', type=str, default='data/rm_data.json')
+    parser.add_argument('--save_path', type=str, default='outputs/rm_model')
     parser.add_argument('--max_epochs', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=1)
+    parser.add_argument('--accimulation_steps', type=int, default=1)
     parser.add_argument('--max_len', type=int, default=512)
     parser.add_argument('--lora_rank', type=int, default=0, help="low-rank adaptation matrices rank")
     parser.add_argument('--loss_fn', type=str, default='log_sig', choices=['log_sig', 'log_exp'])
-    parser.add_argument('--test', type=bool, default=False)
+    parser.add_argument('--lr', type=float, default=5e-6)
     args = parser.parse_args()
     train(args)
