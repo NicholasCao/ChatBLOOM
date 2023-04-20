@@ -3,7 +3,7 @@ import argparse
 import pandas as pd
 import torch
 import torch.distributed as dist
-from coati.dataset import DataCollatorForSupervisedDataset, PromptDataset, SupervisedDataset
+from coati.dataset import DataCollatorForSupervisedDataset, PromptDataset
 from coati.models.bloom import BLOOMRM, BLOOMActor, BLOOMCritic
 from coati.models.gpt import GPTRM, GPTActor, GPTCritic
 from coati.models.llama import LlamaActor, LlamaCritic, LlamaRM
@@ -112,24 +112,24 @@ def main(args):
 
     # configure optimizer
     if args.strategy.startswith('colossalai'):
-        actor_optim = HybridAdam(actor.parameters(), lr=1e-7)
-        critic_optim = HybridAdam(critic.parameters(), lr=1e-7)
+        actor_optim = HybridAdam(actor.parameters(), lr=args.lr)
+        critic_optim = HybridAdam(critic.parameters(), lr=args.lr)
     else:
-        actor_optim = Adam(actor.parameters(), lr=1e-7)
-        critic_optim = Adam(critic.parameters(), lr=1e-7)
+        actor_optim = Adam(actor.parameters(), lr=args.lr)
+        critic_optim = Adam(critic.parameters(), lr=args.lr)
 
     # configure tokenizer
     if args.model == 'gpt2':
-        tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+        tokenizer = GPT2Tokenizer.from_pretrained(args.pretrain)
     elif args.model == 'bloom':
-        tokenizer = BloomTokenizerFast.from_pretrained('bigscience/bloom-560m')
+        tokenizer = BloomTokenizerFast.from_pretrained(args.pretrain)
     elif args.model == 'opt':
-        tokenizer = AutoTokenizer.from_pretrained("facebook/opt-350m")
+        tokenizer = AutoTokenizer.from_pretrained(args.pretrain)
     elif args.model == 'llama':
         tokenizer = LlamaTokenizer.from_pretrained(args.pretrain)
         tokenizer.eos_token = '<\s>'
     elif args.model == 'roberta':
-        tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+        tokenizer = RobertaTokenizer.from_pretrained(args.pretrain)
     else:
         raise ValueError(f'Unsupported model "{args.model}"')
 
@@ -137,10 +137,9 @@ def main(args):
         tokenizer = prepare_llama_tokenizer_and_embedding(tokenizer, actor)
     else:
         tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.truncation_side = 'left'
 
-    data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
-
-    prompt_dataset = PromptDataset(tokenizer=tokenizer, data_path=args.prompt_path, max_datasets_size=16384)
+    prompt_dataset = PromptDataset(tokenizer=tokenizer, data_path=args.prompt_path, max_length=args.instruction_max_length, max_datasets_size=args.max_datasets_size)
     if dist.is_initialized() and dist.get_world_size() > 1:
         prompt_sampler = DistributedSampler(prompt_dataset, shuffle=True, seed=42, drop_last=True)
     prompt_dataloader = DataLoader(prompt_dataset,
@@ -148,20 +147,26 @@ def main(args):
                                    sampler=prompt_sampler,
                                    batch_size=args.train_batch_size)
 
-    pretrain_dataset = SupervisedDataset(tokenizer=tokenizer, data_path=args.pretrain_dataset, max_datasets_size=16384)
-    if dist.is_initialized() and dist.get_world_size() > 1:
-        pretrain_sampler = DistributedSampler(pretrain_dataset, shuffle=True, seed=42, drop_last=True)
-    pretrain_dataloader = DataLoader(pretrain_dataset,
-                                     shuffle=(pretrain_sampler is None),
-                                     sampler=pretrain_sampler,
-                                     batch_size=args.ptx_batch_size,
-                                     collate_fn=data_collator)
+    if args.ptx_coef > 0:
+        raise NotImplementedError()
+        # TODO
+        # pretrain_dataset = SupervisedDataset(tokenizer=tokenizer, data_path=args.pretrain_dataset, max_datasets_size=16384)
+        # if dist.is_initialized() and dist.get_world_size() > 1:
+        #     pretrain_sampler = DistributedSampler(pretrain_dataset, shuffle=True, seed=42, drop_last=True)
+        # pretrain_dataloader = DataLoader(pretrain_dataset,
+        #                                 shuffle=(pretrain_sampler is None),
+        #                                 sampler=pretrain_sampler,
+        #                                 batch_size=args.ptx_batch_size,
+        #                                 collate_fn=data_collator)
+        # data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
+    else:
+        pretrain_dataloader = None
 
-    def tokenize_fn(texts):
-        # MUST padding to max length to ensure inputs of all ranks have the same length
-        # Different length may lead to hang when using gemini, as different generation steps
-        batch = tokenizer(texts, return_tensors='pt', max_length=96, padding='max_length', truncation=True)
-        return {k: v.to(torch.cuda.current_device()) for k, v in batch.items()}
+    # def tokenize_fn(texts):
+    #     # MUST padding to max length to ensure inputs of all ranks have the same length
+    #     # Different length may lead to hang when using gemini, as different generation steps
+    #     batch = tokenizer(texts, return_tensors='pt', max_length=96, padding='max_length', truncation=True)
+    #     return {k: v.to(torch.cuda.current_device()) for k, v in batch.items()}
 
     (actor, actor_optim), (critic, critic_optim) = strategy.prepare((actor, actor_optim), (critic, critic_optim))
 
@@ -179,8 +184,8 @@ def main(args):
         max_epochs=args.max_epochs,
         train_batch_size=args.train_batch_size,
         experience_batch_size=args.experience_batch_size,
-        tokenizer=tokenize_fn,
-        max_length=128,
+        tokenizer=None,
+        max_length=args.max_length,
         do_sample=True,
         temperature=1.0,
         top_k=50,
@@ -216,7 +221,7 @@ if __name__ == '__main__':
     parser.add_argument('--rm_model', default=None, choices=['gpt2', 'bloom', 'opt', 'llama', 'roberta'])
     parser.add_argument('--rm_path', type=str, default=None)
     parser.add_argument('--rm_pretrain', type=str, default=None)
-    parser.add_argument('--save_path', type=str, default='actor_checkpoint_prompts')
+    parser.add_argument('--save_path', type=str, default='outputs/ppo')
     parser.add_argument('--need_optim_ckpt', type=bool, default=False)
     parser.add_argument('--num_episodes', type=int, default=10)
     parser.add_argument('--max_timesteps', type=int, default=10)
@@ -227,6 +232,12 @@ if __name__ == '__main__':
     parser.add_argument('--experience_batch_size', type=int, default=8)
     parser.add_argument('--lora_rank', type=int, default=0, help="low-rank adaptation matrices rank")
     parser.add_argument('--kl_coef', type=float, default=0.1)
-    parser.add_argument('--ptx_coef', type=float, default=0.9)
+    parser.add_argument('--ptx_coef', type=float, default=0.0)
+    parser.add_argument('--instruction_max_length', type=int, default=128)
+    parser.add_argument('--max_length', type=int, default=256)
+    
+    parser.add_argument('--lr', type=float, default=5e-6)
+    parser.add_argument('--accimulation_steps', type=int, default=1)
+    parser.add_argument('--max_datasets_size', type=int, default=None)
     args = parser.parse_args()
     main(args)

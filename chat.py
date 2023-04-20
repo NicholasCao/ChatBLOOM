@@ -19,7 +19,7 @@ def chat(args, model, tokenizer, history):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='bloom', choices=['gpt2', 'bloom', 'opt', 'roberta'])
-    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft-epoch5')
+    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7_ppo') #outputs/bloom-1b7-sft-epoch5')
     parser.add_argument('--max_length', type=int, default=512)
     parser.add_argument('--temperature', type=float, default=0.8)
     parser.add_argument('--top_k', type=int, default=30)

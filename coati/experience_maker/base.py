@@ -4,7 +4,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-from coati.models.base import Actor
+from coati.models.base import Actor, Critic, RewardModel
 
 
 @dataclass
@@ -61,8 +61,8 @@ class ExperienceMaker(ABC):
 
     def __init__(self,
                  actor: Actor,
-                 critic: nn.Module,
-                 reward_model: nn.Module,
+                 critic: Critic,
+                 reward_model: RewardModel,
                  initial_model: Actor,
                  kl_coef: float = 0.1) -> None:
         super().__init__()

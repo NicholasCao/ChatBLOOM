@@ -44,7 +44,7 @@ Run:
 bash scripts/train_instruction_tuning.sh
 ```
 
-### SFT
+### RLHF - Stage 1 - SFT
 
 Data:
 
@@ -65,7 +65,7 @@ Run:
 bash scripts/train_sft.sh
 ```
 
-### RM
+### RLHF - Stage 2 - RM
 |Dataset | Size | Used |
 | - | - | - |
 | [BELLE/1M](https://huggingface.co/datasets/BelleGroup/train_1M_CN) | 1M | 10k |
@@ -84,8 +84,7 @@ python generate_rm_dataset.py
 bash scripts/train_rm.sh
 ```
 
-### PPO-RL 
-TODO
+### RLHF - Stage 3 - PPO-RL 
 ```bash
 bash scripts/train_ppo.sh
 ```

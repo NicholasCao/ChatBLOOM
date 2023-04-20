@@ -66,17 +66,17 @@ def train(args):
 
     # configure tokenizer
     if args.model == 'gpt2':
-        tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+        tokenizer = GPT2Tokenizer.from_pretrained(args.pretrain)
     elif args.model == 'bloom':
-        tokenizer = BloomTokenizerFast.from_pretrained('bigscience/bloom-560m')
+        tokenizer = BloomTokenizerFast.from_pretrained(args.pretrain)
     elif args.model == 'opt':
-        tokenizer = AutoTokenizer.from_pretrained("facebook/opt-350m")
+        tokenizer = AutoTokenizer.from_pretrained(args.pretrain)
     elif args.model == 'deberta':
-        tokenizer = DebertaV2Tokenizer.from_pretrained('microsoft/deberta-v3-large')
+        tokenizer = DebertaV2Tokenizer.from_pretrained(args.pretrain)
     elif args.model == 'llama':
         tokenizer = LlamaTokenizer.from_pretrained(args.pretrain)
     elif args.model == 'roberta':
-        tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+        tokenizer = RobertaTokenizer.from_pretrained(args.pretrain)
     else:
         raise ValueError(f'Unsupported model "{args.model}"')
     max_len = args.max_len

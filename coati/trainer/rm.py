@@ -1,4 +1,5 @@
 from abc import ABC
+import os
 import math
 from datetime import datetime
 import time
@@ -107,12 +108,16 @@ class RewardModelTrainer(ABC):
             acc = 0
             dist = 0
             total_loss = 0
+            
+            if isinstance(self.train_dataloader.sampler, DistributedSampler):
+                self.train_dataloader.sampler.set_epoch(epoch)
 
             for batch_id, batch in enumerate(self.train_dataloader):
                 chosen_ids = batch["chosen_input_ids"].to(torch.cuda.current_device())
                 c_mask = batch["chosen_attention_mask"].to(torch.cuda.current_device())
                 reject_ids = batch["reject_input_ids"].to(torch.cuda.current_device())
                 r_mask = batch["reject_attention_mask"].to(torch.cuda.current_device())
+                
                 # chosen_ids = chosen_ids.squeeze(1).to(torch.cuda.current_device())
                 # c_mask = c_mask.squeeze(1).to(torch.cuda.current_device())
                 # reject_ids = reject_ids.squeeze(1).to(torch.cuda.current_device())

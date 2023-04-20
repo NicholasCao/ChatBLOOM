@@ -82,6 +82,9 @@ class SFTTrainer(ABC):
             total_loss = 0
 
             self.model.train()
+            if isinstance(self.train_dataloader.sampler, DistributedSampler):
+                self.train_dataloader.sampler.set_epoch(epoch)
+
             for batch_id, batch in enumerate(self.train_dataloader):
 
                 prompt_ids = batch["input_ids"].to(torch.cuda.current_device())
