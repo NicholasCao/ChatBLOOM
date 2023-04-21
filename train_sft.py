@@ -7,7 +7,7 @@ import loralib as lora
 import torch
 import torch.distributed as dist
 from coati.dataset import DataCollatorForSupervisedDataset, ITDataset, SFTDataset
-from coati.models.base import RewardModel
+from coati.models import add_tokens
 from coati.models.bloom import BLOOMLM
 from coati.models.gpt import GPTLM
 from coati.models.llama import LlamaLM
@@ -76,6 +76,13 @@ def train(args):
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.truncation_side = 'left'
     
+    add_tokens(model, tokenizer, {
+        '<Human>': ' Human',
+        '<Assistant>': ' Assistant',
+        '<eoh>': '\n',
+        '<eoa>': '\n'
+    })
+    
     max_len = args.max_len
     if args.model == 'llama':
         tokenizer = prepare_llama_tokenizer_and_embedding(tokenizer, model)
@@ -136,7 +143,7 @@ def train(args):
                          eval_dataloader=None,
                          batch_size=args.batch_size,
                          max_epochs=args.max_epochs,
-                         accimulation_steps=args.accimulation_steps)
+                         accumulation_steps=args.accumulation_steps)
 
     trainer.fit(logger=logger, log_interval=args.log_interval)
 
@@ -166,7 +173,7 @@ if __name__ == '__main__':
     parser.add_argument('--lora_rank', type=int, default=0, help="low-rank adaptation matrices rank")
     parser.add_argument('--log_interval', type=int, default=100, help="how many steps to log")
     parser.add_argument('--lr', type=float, default=5e-6)
-    parser.add_argument('--accimulation_steps', type=int, default=8)
+    parser.add_argument('--accumulation_steps', type=int, default=8)
     parser.add_argument('--instruction_tuning', action='store_true')
 
     args = parser.parse_args()

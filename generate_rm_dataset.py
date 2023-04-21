@@ -15,6 +15,12 @@ from coati.dataset.utils import jload
 
 from tqdm import tqdm
 
+def format_dialogue(text):
+    text = text.strip().replace('\n\n', '\n')
+    text = text.replace('\nAssistant:', '<eoh> Assistant:').replace('\nHuman:', '<eoa> Human:')
+    text = text.replace('Human:', '<Human>:').replace('Assistant:', '<Assistant>:')
+    return text + '<eoa>'
+
 @dataclass
 class DataCollator(object):
     """Collate examples for supervised fine-tuning."""
@@ -49,11 +55,9 @@ def chat_preprocess(inputs: List[str],
                     tokenizer: Callable,
                     max_length: int = 512,
                     max_datasets_size: int = 1000000,
-                    short_text_len: int = 60,
                     start: int = 0):
     input_ids = []
     input_lens = []
-    short_response_count = 0
     count = 0
 
     tokenizer.truncation_side = 'left'
@@ -63,17 +67,19 @@ def chat_preprocess(inputs: List[str],
     for inp, oup in zip(inputs[start:], outputs[start:]):
         count += 1
         
+        # filter some short query
+        if len(tokenizer.tokenize(inp)) < 20 and random.random() < 0.3:
+            continue
+    
         # filter some short response
-        if len(tokenizer.tokenize(oup)) < short_text_len:
-            if short_response_count / max_datasets_size > 0.25 or random.random() < 0.5:
-                continue
-            short_response_count += 1
+        if len(tokenizer.tokenize(oup)) < 30 and random.random() < 0.3:
+            continue
 
         input_text = inp #+ oup + tokenizer.eos_token
         
         inputs = tokenizer(input_text,
                            max_length=max_length,
-                           padding="longest",
+                           padding=False,
                            truncation=True,
                            return_tensors="pt")
 
@@ -91,7 +97,7 @@ def chat_preprocess(inputs: List[str],
         if max_datasets_size is not None and len(input_ids) >= max_datasets_size:
             break
     
-    print(f"The data set is enumerated to {count}, short response rate = {short_response_count / len(input_ids)}")
+    print(f"The data set is enumerated to {count}.")
     
     return filtered_inputs, filtered_outputs, input_ids
 
@@ -105,14 +111,14 @@ class RMGenerateDataset(Dataset):
         
         belle_1M = load_dataset('BelleGroup/train_1M_CN', split='train')
         inputs, outputs = format_chat(belle_1M, "instruction", "output")
-        inputs, outputs, input_ids = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=10000, start=60000)
+        inputs, outputs, input_ids = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=20000, start=900000)
         self.inputs += inputs
         self.outputs += outputs
         self.input_ids += input_ids
         
         belle_mtchat = load_dataset('BelleGroup/multiturn_chat_0.8M', split='train')
         inputs, outputs = format_chat(belle_mtchat, "instruction", "output", is_chat=True)
-        inputs, outputs, input_ids = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=20000, start=300000)
+        inputs, outputs, input_ids = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=20000, start=700000)
         self.inputs += inputs
         self.outputs += outputs
         self.input_ids += input_ids
@@ -122,13 +128,13 @@ class RMGenerateDataset(Dataset):
             list_data_dict_en = jload(os.path.join(data_path, 'instinwild_en.json'))
         
             inputs, outputs = format_chat(list_data_dict, "instruction", "output")
-            inputs, outputs, input_ids = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=10000, start=31000)
+            inputs, outputs, input_ids = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=10000, short_text_len=30, start=0)
             self.inputs += inputs
             self.outputs += outputs
             self.input_ids += input_ids
             
             inputs, outputs = format_chat(list_data_dict_en, "instruction", "output")
-            inputs, outputs, input_ids = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=10000, start=31000)
+            inputs, outputs, input_ids = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=10000, short_text_len=30, start=0)
             self.inputs += inputs
             self.outputs += outputs
             self.input_ids += input_ids
@@ -166,20 +172,20 @@ def generate_data(args):
     
     harmless_datas = load_dataset('Anthropic/hh-rlhf', data_dir="harmless-base", split='train')
     for i, instance in enumerate(harmless_datas):
-        if i >= 10000:
+        if i >= 5000:
             break
         data.append({
-            "chosen": instance['chosen'].strip().replace(' Human:', '\n\nHuman:').replace(' Assistant:', '\n\nAssistant:'),
-            "rejected": instance['rejected'].strip().replace(' Human:', '\n\nHuman:').replace(' Assistant:', '\n\nAssistant:')
+            "chosen": format_dialogue(instance['chosen']),
+            "rejected": format_dialogue(instance['rejected'])
         })
-    # helpful_datas = load_dataset('Anthropic/hh-rlhf', data_dir="helpful-base", split='train')
-    # for i, instance in enumerate(helpful_datas):
-    #     if i >= 5000:
-    #         break
-    #     data.append({
-    #         "chosen": instance['chosen'].strip().replace(' Human:', '\n\nHuman:').replace(' Assistant:', '\n\nAssistant:'),
-    #         "rejected": instance['rejected'].strip().replace(' Human:', '\n\nHuman:').replace(' Assistant:', '\n\nAssistant:')
-    #     })
+    helpful_datas = load_dataset('Anthropic/hh-rlhf', data_dir="helpful-base", split='train')
+    for i, instance in enumerate(helpful_datas):
+        if i >= 5000:
+            break
+        data.append({
+            "chosen": format_dialogue(instance['chosen']),
+            "rejected": format_dialogue(instance['rejected'])
+        })
 
     dataset = RMGenerateDataset(tokenizer, args.max_length, data_path=args.data_path)
     data_collator = DataCollator(tokenizer=tokenizer)
@@ -215,8 +221,8 @@ if __name__ == '__main__':
     parser.add_argument('--model', default='gpt2', choices=['gpt2', 'bloom', 'opt', 'roberta'])
     parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft-epoch5')
     parser.add_argument('--max_length', type=int, default=512)
-    parser.add_argument('--temperature', type=float, default=0.7)
-    parser.add_argument('--top_k', type=int, default=50)
+    parser.add_argument('--temperature', type=float, default=0.8)
+    parser.add_argument('--top_k', type=int, default=30)
     parser.add_argument('--top_p', type=float, default=None)
     parser.add_argument('--data_path', type=str, default='data')
     parser.add_argument('--output_path', type=str, default='data/rm_data.json')

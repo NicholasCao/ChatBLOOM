@@ -1,26 +1,33 @@
 import argparse
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
+
 
 def chat(args, model, tokenizer, history):
-    input_ids = tokenizer.encode(history, return_tensors='pt').to(torch.cuda.current_device())
-    output = model.generate(input_ids,
-        max_length=args.max_length,
+    inputs = tokenizer(history, return_tensors='pt').to(torch.cuda.current_device())
+    input_ids = inputs['input_ids']
+    attention_mask = inputs['attention_mask']
+    
+    generation_config = GenerationConfig(
+        max_new_tokens=args.max_length,
         do_sample=True,
         temperature=args.temperature,
         top_k=args.top_k,
         top_p=args.top_p,
-        early_stopping=True)
+        early_stopping=True,
+        eos_token_id=tokenizer.convert_tokens_to_ids("<eoa>"),
+        pad_token_id=tokenizer.eos_token_id
+    )
+    output = model.generate(input_ids=input_ids, attention_mask=attention_mask, generation_config=generation_config)
     
     response = tokenizer.decode(output[0][len(input_ids[0]):], skip_special_tokens=True)
     return response
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='bloom', choices=['gpt2', 'bloom', 'opt', 'roberta'])
-    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7_ppo') #outputs/bloom-1b7-sft-epoch5')
-    parser.add_argument('--max_length', type=int, default=512)
+    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft')
+    parser.add_argument('--max_length', type=int, default=768)
     parser.add_argument('--temperature', type=float, default=0.8)
     parser.add_argument('--top_k', type=int, default=30)
     parser.add_argument('--top_p', type=float, default=0.9)
@@ -49,7 +56,7 @@ if __name__ == '__main__':
     print('Start the chat. Type `/reset` to clear the chat history and `/exit` to exit.')
     history = ''
     while True:
-        inp = input('Human: ').replace('\\n', '\n')
+        inp = input('<Human>: ').replace('\\n', '\n')
         if inp == '/exit':
             break
         if inp == '/reset':
@@ -57,8 +64,8 @@ if __name__ == '__main__':
             history = ''
             continue
 
-        history += f'Human: {inp}\n\nAssistant: '
-        response = chat(args, model, tokenizer, history)
-        print(f'Assistant: {response}')
+        history += f'<Human>: {inp} <eoh> <Assistant>: '
+        response = chat(args, model, tokenizer, history).replace('<eoa>', '')
+        print(f'<Assistant>: {response}')
     
     print('Bye ~ 👋')

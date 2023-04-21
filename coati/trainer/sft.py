@@ -48,7 +48,7 @@ class SFTTrainer(ABC):
         eval_dataloader: DataLoader = None,
         batch_size: int = 1,
         max_epochs: int = 2,
-        accimulation_steps: int = 8,
+        accumulation_steps: int = 8,
     ) -> None:
         super().__init__()
         self.strategy = strategy
@@ -61,8 +61,8 @@ class SFTTrainer(ABC):
             self.model = self.model.module
         self.optimizer = strategy.setup_optimizer(optim, self.model)
 
-        self.accimulation_steps = accimulation_steps
-        num_update_steps_per_epoch = len(train_dataloader) // self.accimulation_steps
+        self.accumulation_steps = accumulation_steps
+        num_update_steps_per_epoch = len(train_dataloader) // self.accumulation_steps
         max_steps = math.ceil(self.epochs * num_update_steps_per_epoch)
 
         self.scheduler = get_scheduler("cosine",
@@ -75,7 +75,7 @@ class SFTTrainer(ABC):
             wandb.init(project="Coati", name=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) + ' sft')
             wandb.watch(self.model)
 
-        step_bar = tqdm(range(len(self.train_dataloader) // self.accimulation_steps * self.epochs),
+        step_bar = tqdm(range(len(self.train_dataloader) // self.accumulation_steps * self.epochs),
                         desc=f'steps',
                         disable=not is_rank_0())
         for epoch in range(self.epochs):
@@ -96,7 +96,7 @@ class SFTTrainer(ABC):
                 loss = outputs.loss
                 # logits = outputs.logits
                 
-                loss = loss / self.accimulation_steps
+                loss = loss / self.accumulation_steps
 
                 if loss >= 2.0:
                     logger.warning(f"batch_id:{batch_id}, abnormal loss: {loss}")
@@ -106,7 +106,7 @@ class SFTTrainer(ABC):
                 total_loss += loss.item()
 
                 # gradient accumulation
-                if (batch_id + 1) % self.accimulation_steps == 0:
+                if (batch_id + 1) % self.accumulation_steps == 0:
                     self.strategy.optimizer_step(self.optimizer)
                     self.optimizer.zero_grad()
                     self.scheduler.step()

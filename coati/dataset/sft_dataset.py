@@ -43,6 +43,23 @@ def is_code_related(inp):
             return True
     return False
 
+def get_filter_rate(res_len):
+    if res_len < 5:
+        return 0.9
+    if res_len < 10:
+        return 0.8
+    if res_len < 20:
+        return 0.6
+    if res_len < 40:
+        return 0.4
+    if res_len < 50:
+        return 0.3
+    if res_len < 60:
+        return 0.2
+    if res_len < 70:
+        return 0.1
+    return 0
+
 def pCLUE_preprocess(data_path: str, tokenizer: Callable, max_length: int = 512, max_datasets_size: int = 600000):
     dataset = load_dataset(data_path, split='train')
     
@@ -55,7 +72,7 @@ def pCLUE_preprocess(data_path: str, tokenizer: Callable, max_length: int = 512,
         
         inputs = tokenizer(input_text,
                            max_length=max_length,
-                           padding="longest",
+                           padding=False,
                            truncation=True,
                            return_tensors="pt")
         if len(inputs['input_ids'][0]) < 20 or len(inputs['input_ids'][0]) >= max_length - 1:
@@ -88,7 +105,7 @@ def BELLE_preprocess(data_path: str, tokenizer: Callable, max_length: int = 512,
         
         inputs = tokenizer(input_text,
                            max_length=max_length,
-                           padding="longest",
+                           padding=False,
                            truncation=True,
                            return_tensors="pt")
         if len(inputs['input_ids'][0]) < 20 or len(inputs['input_ids'][0]) >= max_length - 1:
@@ -121,10 +138,6 @@ class ITDataset(Dataset):
         self.input_ids = []
         self.labels = []
         
-        # input_ids, labels = pCLUE_preprocess('wbbbbb/pclue', tokenizer, max_length)
-        # self.input_ids += input_ids
-        # self.labels += labels
-        
         input_ids, labels = BELLE_preprocess('BelleGroup/generated_chat_0.4M', tokenizer, max_length, 200000)
         self.input_ids += input_ids
         self.labels += labels
@@ -150,7 +163,7 @@ def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedToken
         tokenizer(
             text,
             return_tensors="pt",
-            padding="longest",
+            padding=False,
             max_length=max_length,
             truncation=True,
         ) for text in strings
@@ -189,24 +202,25 @@ def format_chat(dataset, input_key: str = 'instruction', output_key: str = 'outp
 
     if is_chat:
         for data in dataset:
-            formated_input = data[input_key].strip().replace('\n\n', '\n').replace('\nAssistant:', '\n\nAssistant:')
+            formated_input = data[input_key].strip().replace('\n\n', '\n').replace('\nAssistant:', '<eoh> Assistant:')
             formated_input = re.sub('Assistant:(?=\S+)', 'Assistant: ', formated_input)
-            formated_input = formated_input.replace('\nHuman:', '\n\nHuman:')
+            formated_input = formated_input.replace('\nHuman:', '<eoa> Human:')
             formated_input = re.sub('Human:(?=\S+)', 'Human: ', formated_input)
+            formated_input = formated_input.replace('Human:', '<Human>:').replace('Assistant:', '<Assistant>:') + ' '
             
-            formated_output = data[output_key].strip().replace('\n\n', '\n')
+            formated_output = data[output_key].strip().replace('\n\n', '\n') + '<eoa>'
             inputs.append(formated_input)
             outputs.append(formated_output)
     else:
         for data in dataset:
-            formated_input = 'Human: ' + data[input_key].strip().replace('\n\n', '\n') + '\n\nAssistant: '
-            formated_output = data[output_key].strip().replace('\n\n', '\n')
+            formated_input = '<Human>: ' + data[input_key].strip().replace('\n\n', '\n') + '<eoh> <Assistant>: '
+            formated_output = data[output_key].strip().replace('\n\n', '\n') + '<eoa>'
             inputs.append(formated_input)
             outputs.append(formated_output)
 
         # construct context-independent conversations
-        for i in range(len(inputs) // 4):
-            turn = random.randint(2, 5)
+        for i in range(0, len(inputs), 4):
+            turn = random.randint(1, 5)
             new_inp = ''
             new_oup = ''
             
@@ -215,18 +229,16 @@ def format_chat(dataset, input_key: str = 'instruction', output_key: str = 'outp
                 inp = inputs[index]
                 oup = outputs[index]
 
-                if j == turn - 1:
-                    new_inp += inp
-                    new_oup += oup
-                else:
-                    new_inp += inp + oup
-                    new_inp += '\n\n'
+                new_inp += inp + oup
+
+            new_inp += inputs[i]
+            new_oup += outputs[i]
             
-            inputs.append(new_inp)
-            outputs.append(new_oup)
+            inputs[i] = new_inp
+            outputs[i] = new_oup
 
     logger.info(f'Example: \n{inputs[0]}{outputs[0]}', ranks=[0])
-    logger.info(f'Example: \n{inputs[-1]}{outputs[-1]}', ranks=[0])
+    logger.info(f'Example: \n{inputs[1]}{outputs[1]}', ranks=[0])
     return inputs, outputs
     
 
@@ -254,16 +266,21 @@ def chat_preprocess(inputs: List[str],
             continue
 
         # filter some short response
-        if len(tokenizer.tokenize(oup)) < short_text_len:
-            if short_response_count / max_datasets_size > 0.25 or random.random() < 0.5:
+        res_len = len(tokenizer.tokenize(oup))
+        if res_len < 70:
+            rate = get_filter_rate(res_len)
+            if rate > 0 and random.random() < get_filter_rate(res_len):
                 continue
-            short_response_count += 1
+            if res_len < short_text_len and short_response_count / max_datasets_size > 0.25:
+                continue
+            if res_len < short_text_len:
+                short_response_count += 1
 
         input_text = inp + oup + tokenizer.eos_token
         
         inputs = tokenizer(input_text,
                            max_length=max_length,
-                           padding="longest",
+                           padding=False,
                            truncation=True,
                            return_tensors="pt")
 
@@ -280,7 +297,8 @@ def chat_preprocess(inputs: List[str],
 
     labels = copy.deepcopy(input_ids)
     for label, source_len in zip(labels, input_lens):
-        label[:source_len] = IGNORE_INDEX
+        if random.random() < 0.95:
+            label[:source_len] = IGNORE_INDEX
     
     logger.info(f"The data set is enumerated to {count}, short response rate = {short_response_count / len(input_ids)}", ranks=[0])
     
@@ -303,13 +321,13 @@ class SFTDataset(Dataset):
         
         belle_1M = load_dataset('BelleGroup/train_1M_CN', split='train')
         inputs, outputs = format_chat(belle_1M, "instruction", "output")
-        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=120000, short_text_len=80)
+        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=240000, short_text_len=60)
         self.input_ids += input_ids
         self.labels += labels
         
         belle_mtchat = load_dataset('BelleGroup/multiturn_chat_0.8M', split='train')
         inputs, outputs = format_chat(belle_mtchat, "instruction", "output", is_chat=True)
-        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=120000, short_text_len=50)
+        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=200000, short_text_len=50)
         self.input_ids += input_ids
         self.labels += labels
         

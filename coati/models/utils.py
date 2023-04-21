@@ -1,9 +1,13 @@
-from typing import Optional, Union
+from typing import Optional, Union, Dict
 
 import loralib as lora
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from colossalai.logging import get_dist_logger
+
+logger = get_dist_logger()
 
 
 def compute_approx_kl(log_probs: torch.Tensor,
@@ -90,3 +94,23 @@ def convert_to_lora(model: nn.Module,
                                                 lora_dropout=lora_dropout,
                                                 fan_in_fan_out=fan_in_fan_out,
                                                 merge_weights=merge_weights)
+
+def add_tokens(model, tokenizer, tokens: Dict[str, str]):
+    model = model.model
+    
+    tokenizer.add_tokens(list(tokens.keys()))
+    model.resize_token_embeddings(len(tokenizer))
+
+    for token, token_init in tokens.items():
+        
+        index = tokenizer.encode(token)
+        index_init = tokenizer.encode(token_init)
+
+        assert len(index) == 1
+        assert len(index_init) == 1
+        
+        embeddings = model.get_input_embeddings()
+        embeddings.weight.data[index] = embeddings.weight.data[index_init]
+
+        token_init = token_init.replace('\n', '\\n')
+        logger.info(f'Adding token "{token}", its embedding is initialized to "{token_init}".', ranks=[0])
