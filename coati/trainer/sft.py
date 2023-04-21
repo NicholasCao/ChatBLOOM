@@ -72,7 +72,7 @@ class SFTTrainer(ABC):
 
     def fit(self, logger, log_interval=10):
         if is_rank_0():
-            wandb.init(project="Coati", name=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
+            wandb.init(project="Coati", name=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) + ' sft')
             wandb.watch(self.model)
 
         step_bar = tqdm(range(len(self.train_dataloader) // self.accimulation_steps * self.epochs),

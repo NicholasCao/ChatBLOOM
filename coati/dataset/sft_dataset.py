@@ -17,6 +17,7 @@ import copy
 import random
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Sequence, Optional, List
+import re
 
 import torch
 import torch.distributed as dist
@@ -32,6 +33,15 @@ from .utils import is_rank_0, jload
 logger = get_dist_logger()
 
 IGNORE_INDEX = -100
+
+CODE_KEYWORDS = ['python', 'java', 'c++', 'C#', 'javascript', 'php', 'golang']
+
+def is_code_related(inp):
+    inp = inp.lower()
+    for key_word in CODE_KEYWORDS:
+        if key_word in inp:
+            return True
+    return False
 
 def pCLUE_preprocess(data_path: str, tokenizer: Callable, max_length: int = 512, max_datasets_size: int = 600000):
     dataset = load_dataset(data_path, split='train')
@@ -179,18 +189,44 @@ def format_chat(dataset, input_key: str = 'instruction', output_key: str = 'outp
 
     if is_chat:
         for data in dataset:
-            formated_input = data[input_key].replace('\n\n', '\n').replace(' Assistant:', '\n\nAssistant:')
-            formated_input = formated_input.replace(r'Assistant:(?=\S+)', 'Assistant: ')
-            formated_input = formated_input.replace(r'Human:(?=\S+)', 'Human: ')
+            formated_input = data[input_key].strip().replace('\n\n', '\n').replace('\nAssistant:', '\n\nAssistant:')
+            formated_input = re.sub('Assistant:(?=\S+)', 'Assistant: ', formated_input)
+            formated_input = formated_input.replace('\nHuman:', '\n\nHuman:')
+            formated_input = re.sub('Human:(?=\S+)', 'Human: ', formated_input)
             
-            formated_output = data[output_key][1:] if data[output_key].startswith(' ') else data[output_key]
+            formated_output = data[output_key].strip().replace('\n\n', '\n')
             inputs.append(formated_input)
-            outputs.append(formated_output.strip().replace('\n\n', '\n'))
+            outputs.append(formated_output)
     else:
         for data in dataset:
-            formated_input = data[input_key].strip().replace('\n\n', '\n')
-            inputs.append(f'Human: {formated_input}\n\nAssistant: ')
-            outputs.append(data[output_key].strip().replace('\n\n', '\n'))
+            formated_input = 'Human: ' + data[input_key].strip().replace('\n\n', '\n') + '\n\nAssistant: '
+            formated_output = data[output_key].strip().replace('\n\n', '\n')
+            inputs.append(formated_input)
+            outputs.append(formated_output)
+
+        # construct context-independent conversations
+        for i in range(len(inputs) // 4):
+            turn = random.randint(2, 5)
+            new_inp = ''
+            new_oup = ''
+            
+            for j in range(turn):
+                index = random.randint(0, len(inputs) - 1)
+                inp = inputs[index]
+                oup = outputs[index]
+
+                if j == turn - 1:
+                    new_inp += inp
+                    new_oup += oup
+                else:
+                    new_inp += inp + oup
+                    new_inp += '\n\n'
+            
+            inputs.append(new_inp)
+            outputs.append(new_oup)
+
+    logger.info(f'Example: \n{inputs[0]}{outputs[0]}', ranks=[0])
+    logger.info(f'Example: \n{inputs[-1]}{outputs[-1]}', ranks=[0])
     return inputs, outputs
     
 
@@ -199,7 +235,7 @@ def chat_preprocess(inputs: List[str],
                     tokenizer: Callable,
                     max_length: int = 512,
                     max_datasets_size: int = 1000000,
-                    short_text_len: int = 30,
+                    short_text_len: int = 50,
                     start: int = 0):
     input_ids = []
     input_lens = []
@@ -208,7 +244,15 @@ def chat_preprocess(inputs: List[str],
 
     for inp, oup in tqdm(zip(inputs[start:], outputs[start:]), disable=not is_rank_0(), mininterval=3):
         count += 1
-        
+
+        # filter some code related
+        if is_code_related(inp) and '```' not in oup and random.random() < 0.5:
+            continue
+
+        # filter some short query
+        if len(tokenizer.tokenize(inp)) < 20 and random.random() < 0.3:
+            continue
+
         # filter some short response
         if len(tokenizer.tokenize(oup)) < short_text_len:
             if short_response_count / max_datasets_size > 0.25 or random.random() < 0.5:
@@ -238,7 +282,7 @@ def chat_preprocess(inputs: List[str],
     for label, source_len in zip(labels, input_lens):
         label[:source_len] = IGNORE_INDEX
     
-    logger.info(f"The data set is enumerated to {count}, short response rate = {short_response_count / len(input_ids)}")
+    logger.info(f"The data set is enumerated to {count}, short response rate = {short_response_count / len(input_ids)}", ranks=[0])
     
     return input_ids, labels
 
@@ -259,13 +303,13 @@ class SFTDataset(Dataset):
         
         belle_1M = load_dataset('BelleGroup/train_1M_CN', split='train')
         inputs, outputs = format_chat(belle_1M, "instruction", "output")
-        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=40000)
+        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=120000, short_text_len=80)
         self.input_ids += input_ids
         self.labels += labels
         
         belle_mtchat = load_dataset('BelleGroup/multiturn_chat_0.8M', split='train')
         inputs, outputs = format_chat(belle_mtchat, "instruction", "output", is_chat=True)
-        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=200000)
+        input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=120000, short_text_len=50)
         self.input_ids += input_ids
         self.labels += labels
         
@@ -274,12 +318,12 @@ class SFTDataset(Dataset):
             list_data_dict_en = jload(os.path.join(data_path, 'instinwild_en.json'))
         
             inputs, outputs = format_chat(list_data_dict, "instruction", "output")
-            input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=30000)
+            input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=30000, short_text_len=20)
             self.input_ids += input_ids
             self.labels += labels
             
             inputs, outputs = format_chat(list_data_dict_en, "instruction", "output")
-            input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=30000)
+            input_ids, labels = chat_preprocess(inputs, outputs, tokenizer, max_length, max_datasets_size=30000, short_text_len=20)
             self.input_ids += input_ids
             self.labels += labels
                 

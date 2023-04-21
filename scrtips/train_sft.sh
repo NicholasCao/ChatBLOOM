@@ -4,12 +4,12 @@ torchrun --standalone --nproc_per_node=4 train_sft.py \
     --model bloom \
     --strategy colossalai_zero2 \
     --data_path data \
-    --save_path  outputs/bloom-1b7-sft-epoch5_2 \
+    --save_path  outputs/bloom-1b7-sft-epoch4 \
     --batch_size 4 \
     --accimulation_steps 8 \
-    --lr 3e-5 \
+    --lr 2e-5 \
     --max_len 512 \
-    --max_epochs 5
+    --max_epochs 4
 
 # use bloomz
 # torchrun --standalone --nproc_per_node=4 train_sft.py \
