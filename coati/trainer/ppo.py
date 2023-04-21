@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, Union
 import os
+import time
 
 import wandb
 import torch
@@ -179,8 +180,7 @@ class PPOTrainer(ABC):
                 wandb.log({
                     "reward": experience.reward.mean().item(),
                     "actor_loss": actor_loss,
-                    "critic_loss": critic_loss,
-                    "lr": self.scheduler.get_last_lr()[0],
+                    "critic_loss": critic_loss
                 })
 
         return {'reward': experience.reward.mean().item()}
@@ -193,9 +193,8 @@ class PPOTrainer(ABC):
             update_timesteps: int = 10) -> None:
         if is_rank_0():
             wandb.init(project="Coati", name=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
-            wandb.watch(self.model)
 
-        time = 0
+        count = 0
         self.pretrain_dataloader = pretrain_dataloader
         self.prompt_dataloader = prompt_dataloader
         self._on_fit_start()
@@ -206,7 +205,7 @@ class PPOTrainer(ABC):
             for prompts in tqdm(self.prompt_dataloader,
                                 desc=f'Episode [{episode+1}/{num_episodes}]',
                                 disable=not is_rank_0()):
-                time += 1
+                count += 1
                 # prompts = next(iter(self.prompt_dataloader))
                 self._on_make_experience_start()
                 self.experience_maker.initial_model.to(torch.cuda.current_device())
@@ -214,7 +213,7 @@ class PPOTrainer(ABC):
                 experience = self._make_experience(prompts)
                 self._on_make_experience_end(experience)
                 self.replay_buffer.append(experience)
-                if time % update_timesteps == 0:
+                if count % update_timesteps == 0:
                     self.experience_maker.initial_model.to('cpu')
                     self.experience_maker.reward_model.to('cpu')
                     self._learn()

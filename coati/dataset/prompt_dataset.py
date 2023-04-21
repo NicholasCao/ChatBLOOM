@@ -46,7 +46,7 @@ class PromptDataset(Dataset):
 
             self.prompt.append(token['input_ids'][0].to(torch.cuda.current_device()))
 
-            if len(self.prompt) >= max_datasets_size:
+            if max_datasets_size is not None and len(self.prompt) >= max_datasets_size:
                 break
 
     def __len__(self):
