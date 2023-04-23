@@ -145,7 +145,7 @@ def train(args):
                          max_epochs=args.max_epochs,
                          accumulation_steps=args.accumulation_steps)
 
-    trainer.fit(logger=logger, log_interval=args.log_interval)
+    trainer.fit(logger=logger)
 
     # save model checkpoint after fitting on only rank0
     trainer.save_model(path=args.save_path, only_rank0=True, tokenizer=tokenizer)
@@ -171,7 +171,6 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--max_len', type=int, default=512)
     parser.add_argument('--lora_rank', type=int, default=0, help="low-rank adaptation matrices rank")
-    parser.add_argument('--log_interval', type=int, default=100, help="how many steps to log")
     parser.add_argument('--lr', type=float, default=5e-6)
     parser.add_argument('--accumulation_steps', type=int, default=8)
     parser.add_argument('--instruction_tuning', action='store_true')

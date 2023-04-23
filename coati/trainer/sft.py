@@ -67,10 +67,10 @@ class SFTTrainer(ABC):
 
         self.scheduler = get_scheduler("cosine",
                                        self.optimizer,
-                                       num_warmup_steps=math.ceil(max_steps * 0.03),
+                                       num_warmup_steps=math.ceil(max_steps * 0.05),
                                        num_training_steps=max_steps)
 
-    def fit(self, logger, log_interval=10):
+    def fit(self, logger):
         if is_rank_0():
             wandb.init(project="Coati", name=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) + ' sft')
             wandb.watch(self.model)
