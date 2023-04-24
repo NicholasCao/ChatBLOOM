@@ -46,7 +46,7 @@ class RewardModelTrainer(ABC):
         eval_dataloader: DataLoader,
         batch_size: int = 1,
         max_epochs: int = 1,
-        accimulation_steps: int = 1,
+        accumulation_steps: int = 1,
     ) -> None:
         super().__init__()
         self.strategy = strategy
@@ -62,8 +62,8 @@ class RewardModelTrainer(ABC):
         self.loss_fn = loss_fn
         self.optimizer = strategy.setup_optimizer(optim, self.model)
         
-        self.accimulation_steps = accimulation_steps
-        num_update_steps_per_epoch = len(self.train_dataloader) // self.accimulation_steps
+        self.accumulation_steps = accumulation_steps
+        num_update_steps_per_epoch = len(self.train_dataloader) // self.accumulation_steps
         max_steps = math.ceil(self.epochs * num_update_steps_per_epoch)
         self.scheduler = get_scheduler("cosine",
                                 self.optimizer,
@@ -75,6 +75,7 @@ class RewardModelTrainer(ABC):
         on = 0
         cnt = 0
         self.model.eval()
+        rewards = torch.tensor([]).to(torch.cuda.current_device())
         with torch.no_grad():
             for batch in dataloader:
                 chosen_ids = batch["chosen_input_ids"].to(torch.cuda.current_device())
@@ -84,6 +85,8 @@ class RewardModelTrainer(ABC):
 
                 chosen_reward = self.model(chosen_ids, attention_mask=c_mask)
                 reject_reward = self.model(reject_ids, attention_mask=r_mask)
+                
+                rewards = torch.cat([rewards, chosen_reward, reject_reward])
                 for i in range(len(chosen_reward)):
                     cnt += 1
                     if chosen_reward[i] > reject_reward[i]:
@@ -91,22 +94,28 @@ class RewardModelTrainer(ABC):
                 dist += (chosen_reward - reject_reward).mean().item()
             dist_mean = dist / len(dataloader)
             acc = on / cnt
+            reward_mean = rewards.view(-1).mean()
+            reward_std = rewards.view(-1).std()
+            
         self.model.train()
-        return dist_mean, acc
+        return {
+            "dist": dist_mean,
+            "acc": acc,
+            "reward_mean": reward_mean,
+            "reward_std": reward_std
+        }
 
     def fit(self, logger):
         if is_rank_0():
             wandb.init(project="Coati", name=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
             wandb.watch(self.model)
 
-        step_bar = tqdm(range(len(self.train_dataloader) // self.accimulation_steps * self.epochs),
+        step_bar = tqdm(range(len(self.train_dataloader) // self.accumulation_steps * self.epochs),
                         desc=f'steps',
                         disable=not is_rank_0())
         for epoch in range(self.epochs):
             # train
             self.model.train()
-            acc = 0
-            dist = 0
             total_loss = 0
             
             if isinstance(self.train_dataloader.sampler, DistributedSampler):
@@ -118,21 +127,17 @@ class RewardModelTrainer(ABC):
                 reject_ids = batch["reject_input_ids"].to(torch.cuda.current_device())
                 r_mask = batch["reject_attention_mask"].to(torch.cuda.current_device())
                 
-                # chosen_ids = chosen_ids.squeeze(1).to(torch.cuda.current_device())
-                # c_mask = c_mask.squeeze(1).to(torch.cuda.current_device())
-                # reject_ids = reject_ids.squeeze(1).to(torch.cuda.current_device())
-                # r_mask = r_mask.squeeze(1).to(torch.cuda.current_device())
                 chosen_reward = self.model(chosen_ids, attention_mask=c_mask)
                 reject_reward = self.model(reject_ids, attention_mask=r_mask)
     
                 loss = self.loss_fn(chosen_reward, reject_reward)
-                loss = loss / self.accimulation_steps
+                loss = loss / self.accumulation_steps
                 
                 self.strategy.backward(loss, self.model, self.optimizer)
                 total_loss += loss.item()
 
                 # gradient accumulation
-                if (batch_id + 1) % self.accimulation_steps == 0:
+                if (batch_id + 1) % self.accumulation_steps == 0:
                     self.strategy.optimizer_step(self.optimizer)
                     self.optimizer.zero_grad()
                     self.scheduler.step()
@@ -146,20 +151,21 @@ class RewardModelTrainer(ABC):
                     total_loss = 0
                     step_bar.update()
                     
-                    if (batch_id // self.accimulation_steps + 1) % 100 == 0:
-                        dist, acc = self.eval_acc(self.valid_dataloader)
+                    if (batch_id // self.accumulation_steps + 1) % 100 == 0:
+                        results = self.eval_acc(self.valid_dataloader)
                         if is_rank_0():
                             wandb.log({
-                                "dist": dist,
-                                "acc": acc,
+                                "dist": results['dist'],
+                                "acc": results['acc'],
+                                "r_mean": results['reward_mean'],
+                                "r_std": results['reward_std'],
                                 "batch_id": batch_id
                             })
-                        logger.info(f'Eval dev: dist={dist}, acc={acc}', ranks=[0])
+                        logger.info(f"Eval dev: dist={results['dist']}, acc={results['acc']}, r_mean={results['reward_mean']}, r_std={results['reward_std']}", ranks=[0])
 
             # eval
-            dist, acc = self.eval_acc(self.eval_dataloader)
-            logger.info(f'Eval test: dist={dist}, acc={acc}', ranks=[0])
-            step_bar.set_postfix({'dist': dist, 'acc': acc})
+            results = self.eval_acc(self.eval_dataloader)
+            logger.info(f"Eval dev: dist={results['dist']}, acc={results['acc']}, r_mean={results['reward_mean']}, r_std={results['reward_std']}", ranks=[0])
         step_bar.close()
 
     def save_model(self,

@@ -183,27 +183,27 @@ class ColossalAIStrategy(DDPStrategy):
             if isinstance(module, LoraLinear):
                 module.merge_weights = True
                 module.eval()
-        if isinstance(unwrapped_model, RewardModel):
+        # if isinstance(unwrapped_model, RewardModel):
+        #     state_dict = unwrapped_model.state_dict()
+        #     if only_rank0 and dist.get_rank() != 0:
+        #         return
+        #     torch.save(state_dict, path)
+        # else:
+        try:
+            if isinstance(unwrapped_model, LM):
+                unwrapped_model = unwrapped_model.model
+            logger.info(f'Saving model to {path}', ranks=[0])
+            unwrapped_model.save_pretrained(path)
+            logger.info(f'Model saved to {path} Successfully', ranks=[0])
+            if tokenizer is not None:
+                logger.info(f'Saving tokenizer to {path}', ranks=[0])
+                tokenizer.save_pretrained(path)
+                logger.info(f'Tokenizer saved to {path} Successfully', ranks=[0])
+        except AttributeError:
             state_dict = unwrapped_model.state_dict()
             if only_rank0 and dist.get_rank() != 0:
                 return
             torch.save(state_dict, path)
-        else:
-            try:
-                if isinstance(unwrapped_model, LM):
-                    unwrapped_model = unwrapped_model.model
-                logger.info(f'Saving model to {path}', ranks=[0])
-                unwrapped_model.save_pretrained(path)
-                logger.info(f'Model saved to {path} Successfully', ranks=[0])
-                if tokenizer is not None:
-                    logger.info(f'Saving tokenizer to {path}', ranks=[0])
-                    tokenizer.save_pretrained(path)
-                    logger.info(f'Tokenizer saved to {path} Successfully', ranks=[0])
-            except AttributeError:
-                state_dict = unwrapped_model.state_dict()
-                if only_rank0 and dist.get_rank() != 0:
-                    return
-                torch.save(state_dict, path)
 
     def save_optimizer(self, optimizer: Optimizer, path: str, only_rank0: bool = False) -> None:
         if only_rank0:

@@ -71,9 +71,11 @@ class Strategy(ABC):
         """
 
         def prepare_model(model: nn.Module):
-            if isinstance(model, Actor):
-                return Actor(self.setup_model(self._unwrap_model(model)))
-            return self.setup_model(self._unwrap_model(model))
+            model.model = self.setup_model(model.model)
+            return model
+            # if isinstance(model, Actor):
+            #     return Actor(self.setup_model(self._unwrap_model(model)))
+            # return self.setup_model(self._unwrap_model(model))
 
         rets = []
         for arg in models_or_model_optim_pairs:
@@ -99,9 +101,9 @@ class Strategy(ABC):
         Args:
             model (nn.Module): an actor or a critic
         """
-        if isinstance(model, Actor) or isinstance(model, LM):
-            return model.model
-        return model
+        # if isinstance(model, Actor) or isinstance(model, LM):
+        return model.model
+        # return model
 
     @staticmethod
     def _unwrap_actor(actor: Actor) -> nn.Module:

@@ -103,11 +103,11 @@ def add_tokens(model, tokenizer, tokens: Dict[str, str]):
 
     for token, token_init in tokens.items():
         
-        index = tokenizer.encode(token)
-        index_init = tokenizer.encode(token_init)
+        index = tokenizer.encode(token, add_special_tokens=False)
+        index_init = tokenizer.encode(token_init, add_special_tokens=False)
 
         assert len(index) == 1
-        assert len(index_init) == 1
+        assert len(index_init) == 1, tokenizer.decode(index_init)
         
         embeddings = model.get_input_embeddings()
         embeddings.weight.data[index] = embeddings.weight.data[index_init]

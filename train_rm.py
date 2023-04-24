@@ -7,9 +7,9 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import loralib as lora
 import torch
-from coati.dataset import HhRlhfDataset, RmStaticDataset, DataCollatorForRMDataset
+from coati.dataset import RMDataset, DataCollatorForRMDataset
 from coati.dataset.utils import jload
-from coati.models import LogExpLoss, LogSigLoss
+from coati.models import LogExpLoss, LogSigLoss, add_tokens
 from coati.models.base import RewardModel
 from coati.models.bloom import BLOOMRM
 from coati.models.deberta import DebertaRM
@@ -86,6 +86,15 @@ def train(args):
     else:
         tokenizer.pad_token = tokenizer.eos_token
 
+    tokenizer.truncation_side = 'left'
+    
+    add_tokens(model, tokenizer, {
+        '<Human>': ' Human',
+        '<Assistant>': ' Assistant',
+        '<eoh>': '\n',
+        '<eoa>': '\n'
+    })
+
     # configure optimizer
     if args.strategy.startswith('colossalai'):
         optim = HybridAdam(model.parameters(), lr=args.lr)
@@ -105,14 +114,13 @@ def train(args):
 
     random.shuffle(train_data)
 
-    eval_data = load_dataset('Anthropic/hh-rlhf', data_dir="harmless-base", split='test')
-    valid_data = train_data[:1000]
+    eval_data = load_dataset('Anthropic/hh-rlhf', split='test')
+    valid_data = train_data[:1000] # split dev set
     train_data = train_data[1000:]
-    # eval_data = eval_data.select((randint(0, len(eval_data) - 1) for _ in range(1000)))
 
-    train_dataset = HhRlhfDataset(train_data, tokenizer, max_len)
-    valid_dataset = HhRlhfDataset(valid_data, tokenizer, max_len)
-    eval_dataset = HhRlhfDataset(eval_data, tokenizer, max_len)
+    train_dataset = RMDataset(train_data, tokenizer, max_len)
+    valid_dataset = RMDataset(valid_data, tokenizer, max_len)
+    eval_dataset = RMDataset(eval_data, tokenizer, max_len)
 
     data_collator = DataCollatorForRMDataset(tokenizer=tokenizer)
     
@@ -125,8 +133,8 @@ def train(args):
                                         sampler=train_sampler,
                                         batch_size=args.batch_size,
                                         collate_fn=data_collator)
-    valid_dataloader = DataLoader(valid_dataset, batch_size=args.batch_size, collate_fn=data_collator)
-    eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size, collate_fn=data_collator)
+    valid_dataloader = DataLoader(valid_dataset, batch_size=32, collate_fn=data_collator)
+    eval_dataloader = DataLoader(eval_dataset, batch_size=32, collate_fn=data_collator)
 
     trainer = RewardModelTrainer(model=model,
                                  strategy=strategy,
@@ -137,7 +145,7 @@ def train(args):
                                  eval_dataloader=eval_dataloader,
                                  batch_size=args.batch_size,
                                  max_epochs=args.max_epochs,
-                                 accimulation_steps=args.accimulation_steps)
+                                 accumulation_steps=args.accumulation_steps)
 
     trainer.fit(logger)
     # save model checkpoint after fitting on only rank0
@@ -162,10 +170,10 @@ if __name__ == '__main__':
     parser.add_argument('--save_path', type=str, default='outputs/rm_model')
     parser.add_argument('--max_epochs', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--accimulation_steps', type=int, default=1)
+    parser.add_argument('--accumulation_steps', type=int, default=1)
     parser.add_argument('--max_len', type=int, default=512)
     parser.add_argument('--lora_rank', type=int, default=0, help="low-rank adaptation matrices rank")
     parser.add_argument('--loss_fn', type=str, default='log_sig', choices=['log_sig', 'log_exp'])
-    parser.add_argument('--lr', type=float, default=5e-6)
+    parser.add_argument('--lr', type=float, default=1e-5)
     args = parser.parse_args()
     train(args)
