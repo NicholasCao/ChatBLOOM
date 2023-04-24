@@ -48,7 +48,8 @@ if __name__ == '__main__':
         temperature=args.temperature,
         top_k=args.top_k,
         top_p=args.top_p,
-        early_stopping=True
+        early_stopping=True,
+        repetition_penalty=1.1
     )
     
     print('开始聊天。输入/reset清空聊天历史，输入/exit退出。')

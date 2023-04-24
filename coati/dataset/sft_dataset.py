@@ -133,7 +133,7 @@ class ITDataset(Dataset):
 
 def chat_preprocess(dataset, tokenizer: Callable, max_length: int = 512):
     input_ids = []
-    input_lens = []
+    output_lens = []
 
     for data in tqdm(dataset, disable=not is_rank_0(), mininterval=3):
 
@@ -145,14 +145,16 @@ def chat_preprocess(dataset, tokenizer: Callable, max_length: int = 512):
                            truncation=True,
                            return_tensors="pt")
 
-        input_len = len(tokenizer.tokenize(data['query']))
+        output_len = len(tokenizer.tokenize(data['response'] + tokenizer.eos_token))
+        if output_len > max_length - 30:
+            continue
         
         input_ids.append(inputs['input_ids'][0])
-        input_lens.append(input_len)
+        output_lens.append(output_len)
 
     labels = copy.deepcopy(input_ids)
-    for label, source_len in zip(labels, input_lens):
-        label[:source_len] = IGNORE_INDEX
+    for label, target_len in zip(labels, output_lens):
+        label[:len(label) - target_len] = IGNORE_INDEX
     
     return input_ids, labels
 
