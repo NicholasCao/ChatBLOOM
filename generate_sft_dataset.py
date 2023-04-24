@@ -25,28 +25,48 @@ def preprocess_sharegpt(dataset):
         conversations = data['conversations']
         query = ''
         response = ''
+        texts = []
         for i, conv in enumerate(conversations):
-            text = ''
             if conv['from'] in ['human', 'user']:
-                text += '<<Human>: ' + conv['value'].replace('\n\n', '\n') + '<eoh>'
+                # 0 from human
+                texts.append(('<Human>: ' + conv['value'].replace('\n\n', '\n') + '<eoh>', 0))
             elif conv['from'] in ['gpt', 'chatgpt', 'bing', 'bard']:
-                text += '<<Assistant>: ' + conv['value'].replace('\n\n', '\n') + '<eoa>'
+                # 1 from ai
+                texts.append(('<Assistant>: ' + conv['value'].replace('\n\n', '\n') + '<eoa>', 1))
             elif conv['from'] == 'system':
                 continue
             else:
                 print(conv['from'])
                 raise NotImplementedError()
-                
-            if i == len(conversations) - 1:
-                response += text
-            else:
-                query += text
+
+        if len(texts) < 2:
+            continue
+        
+        if texts[-1][1] != 1:
+            texts = texts[:-1]
+            if len(texts) < 2:
+                continue
+            
+        last = None
+        go_next = False
+        query = ''
+        for text in texts:
+            if last is not None and last == text[1]:
+                go_next = True
+                break
+            last = text[1]
+            query += text[0]
+
+        if go_next or texts[-1][1] == 0:
+            continue
+
+        query += '<Assistant>: '
+        response = texts[-1][0].replace('<Assistant>: ', '')
     
         if 'gpt' not in response.lower():
             new_data.append({'query': query, 'response': response})
         
     print(f'ShareGPT example: {new_data[0]}. Number of examples: {len(new_data)}')
-    
     return new_data
 
 def get_filter_rate(res_len):

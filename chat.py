@@ -3,21 +3,11 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
 
 
-def chat(args, model, tokenizer, history):
-    inputs = tokenizer(history, return_tensors='pt').to(torch.cuda.current_device())
+def chat(args, model, tokenizer, history, generation_config):
+    inputs = tokenizer(history, return_tensors='pt', max_length=args.prompt_max_length, truncation=True).to(torch.cuda.current_device())
     input_ids = inputs['input_ids']
     attention_mask = inputs['attention_mask']
     
-    generation_config = GenerationConfig(
-        max_new_tokens=args.max_length,
-        do_sample=True,
-        temperature=args.temperature,
-        top_k=args.top_k,
-        top_p=args.top_p,
-        early_stopping=True,
-        eos_token_id=tokenizer.convert_tokens_to_ids("<eoa>"),
-        pad_token_id=tokenizer.eos_token_id
-    )
     output = model.generate(input_ids=input_ids, attention_mask=attention_mask, generation_config=generation_config)
     
     response = tokenizer.decode(output[0][len(input_ids[0]):], skip_special_tokens=True)
@@ -27,12 +17,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='bloom', choices=['gpt2', 'bloom', 'opt', 'roberta'])
     parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft')
+    parser.add_argument('--prompt_max_length', type=int, default=384)
     parser.add_argument('--max_length', type=int, default=768)
     parser.add_argument('--temperature', type=float, default=0.8)
     parser.add_argument('--top_k', type=int, default=30)
     parser.add_argument('--top_p', type=float, default=0.9)
     args = parser.parse_args()
-    
     
     if args.model == 'gpt2':
         tokenizer = AutoTokenizer.from_pretrained(args.model_path)
@@ -52,6 +42,15 @@ if __name__ == '__main__':
     model.to(torch.cuda.current_device())
     model.eval()
     
+    generation_config = GenerationConfig(
+        max_new_tokens=args.max_length,
+        do_sample=True,
+        temperature=args.temperature,
+        top_k=args.top_k,
+        top_p=args.top_p,
+        early_stopping=True
+    )
+    
     print('开始聊天。输入/reset清空聊天历史，输入/exit退出。')
     print('Start the chat. Type `/reset` to clear the chat history and `/exit` to exit.')
     history = ''
@@ -65,7 +64,7 @@ if __name__ == '__main__':
             continue
 
         history += f'<Human>: {inp} <eoh> <Assistant>: '
-        response = chat(args, model, tokenizer, history).replace('<eoa>', '')
+        response = chat(args, model, tokenizer, history, generation_config).replace('<eoa>', '')
         print(f'<Assistant>: {response}')
     
     print('Bye ~ 👋')

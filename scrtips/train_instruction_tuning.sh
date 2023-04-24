@@ -4,7 +4,7 @@ torchrun --standalone --nproc_per_node=4 train_sft.py \
     --strategy colossalai_zero2 \
     --save_path  outputs/bloom-1b7-instruction-tuning \
     --batch_size 4 \
-    --accimulation_steps 8 \
+    --accumulation_steps 8 \
     --lr 2e-5 \
     --max_len 512 \
     --max_epochs 1 \
