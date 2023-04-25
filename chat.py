@@ -18,9 +18,9 @@ if __name__ == '__main__':
     parser.add_argument('--model', default='bloom', choices=['gpt2', 'bloom', 'opt', 'roberta'])
     parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft')
     parser.add_argument('--prompt_max_length', type=int, default=384)
-    parser.add_argument('--max_length', type=int, default=768)
+    parser.add_argument('--max_new_tokens', type=int, default=384)
     parser.add_argument('--temperature', type=float, default=0.8)
-    parser.add_argument('--top_k', type=int, default=30)
+    parser.add_argument('--top_k', type=int, default=50)
     parser.add_argument('--top_p', type=float, default=0.9)
     args = parser.parse_args()
     
@@ -42,8 +42,9 @@ if __name__ == '__main__':
     model.to(torch.cuda.current_device())
     model.eval()
     
-    generation_config = GenerationConfig(
-        max_new_tokens=args.max_length,
+    generation_config = GenerationConfig.from_pretrained(
+        args.model_path,
+        max_new_tokens=args.max_new_tokens,
         do_sample=True,
         temperature=args.temperature,
         top_k=args.top_k,
@@ -51,6 +52,7 @@ if __name__ == '__main__':
         early_stopping=True,
         repetition_penalty=1.1
     )
+    generation_config.pad_token_id = tokenizer.eos_token_id
     
     print('开始聊天。输入/reset清空聊天历史，输入/exit退出。')
     print('Start the chat. Type `/reset` to clear the chat history and `/exit` to exit.')
