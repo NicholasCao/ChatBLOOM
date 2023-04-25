@@ -4,6 +4,7 @@ import json
 import random
 import argparse
 from tqdm import tqdm
+import string
 
 from transformers import AutoTokenizer
 from datasets import load_dataset
@@ -19,6 +20,20 @@ def is_code_related(inp):
             return True
     return False
 
+def is_zh(text):
+    zh = r'[\u4e00-\u9fff]'
+    result = re.findall(zh, text)
+    return len(result) > 0
+
+def is_english(text):
+    cnt = 0
+    for char in text:
+        if char not in string.ascii_letters + string.punctuation + string.whitespace + string.digits:
+            cnt += 1
+            if cnt > min(len(text) * 0.03, 5):
+                return False
+    return True
+
 def preprocess_sharegpt(dataset):
     new_data = []
     for data in dataset:
@@ -26,6 +41,11 @@ def preprocess_sharegpt(dataset):
         query = ''
         response = ''
         texts = []
+        all_text = ''.join([conv['value'] for conv in conversations])
+        
+        if not is_zh(all_text) and not is_english(all_text):
+            continue
+
         for i, conv in enumerate(conversations):
             if conv['from'] in ['human', 'user']:
                 # 0 from human
@@ -50,7 +70,7 @@ def preprocess_sharegpt(dataset):
         last = None
         go_next = False
         query = ''
-        for text in texts:
+        for text in texts[:-1]:
             if last is not None and last == text[1]:
                 go_next = True
                 break
@@ -66,7 +86,8 @@ def preprocess_sharegpt(dataset):
         if 'gpt' not in response.lower():
             new_data.append({'query': query, 'response': response})
         
-    print(f'ShareGPT example: {new_data[0]}. Number of examples: {len(new_data)}')
+    print(f'ShareGPT example: {new_data[0]}.')
+    print(f'Number of examples: {len(new_data)}.')
     return new_data
 
 def get_filter_rate(res_len):
@@ -115,7 +136,7 @@ def preprocess_instruct_dataset(dataset, filter: bool = False, tokenizer = None,
 
     # construct context-independent conversations
     for i in range(0, len(new_data), 5):
-        turn = random.randint(1, 4)
+        turn = random.randint(1, 3)
         new_query = ''
         
         for j in range(turn):
@@ -175,7 +196,9 @@ if __name__ == '__main__':
     parser.add_argument('--sharegpt_data_path', type=str, default='data/sharegpt_20230401_clean_lang_split.json')
     parser.add_argument('--gpt4llm_data_path', type=str, default='data/alpaca_gpt4_data.json')
     parser.add_argument('--gpt4llm_zh_data_path', type=str, default='data/alpaca_gpt4_data_zh.json')
-    parser.add_argument('--output_path', type=str, default='data/sft_data.json')
+    parser.add_argument('--sft_output_path', type=str, default='data/sft_data.json')
+    parser.add_argument('--rm_output_path', type=str, default='data/rm_data.json')
+    parser.add_argument('--prompt_output_path', type=str, default='data/prompt_data.json')
     args = parser.parse_args()
     
     tokenizer = AutoTokenizer.from_pretrained(args.model_path)
@@ -190,14 +213,30 @@ if __name__ == '__main__':
     data += preprocess_instruct_dataset(dataset)
     
     dataset = load_dataset('BelleGroup/train_1M_CN', split='train')
-    data += preprocess_instruct_dataset(dataset, filter=True, tokenizer=tokenizer, max_size=80000)
+    data += preprocess_instruct_dataset(dataset, filter=True, tokenizer=tokenizer, max_size=100000)
     
     dataset = load_dataset('BelleGroup/multiturn_chat_0.8M', split='train')
     data += preprocess_multiturn_chat(dataset, filter=True, tokenizer=tokenizer, max_size=100000)
     
     print(f'Total data size: {len(data)}')
 
-    with open(args.output_path, 'w') as file:
-        json.dump(data, file)
+    random.shuffle(data)
     
-    print(f'SFT data generation completed, and saved to {args.output_path}.')
+    prompt_data = data[:20000]
+    rm_data = data[20000:40000]
+    sft_dta = data[40000:]
+    
+    with open(args.sft_output_path, 'w') as file:
+        json.dump(sft_dta, file)
+    
+    print(f'SFT data generation completed, and saved to {args.sft_output_path}.')
+    
+    with open(args.rm_output_path, 'w') as file:
+        json.dump(rm_data, file, indent=2, ensure_ascii=False)
+    
+    print(f'RM data generation completed, and saved to {args.rm_output_path}.')
+    
+    with open(args.prompt_output_path, 'w') as file:
+        json.dump(prompt_data, file, indent=2, ensure_ascii=False)
+
+    print(f'Prompt data generation completed, and saved to {args.prompt_output_path}.')
