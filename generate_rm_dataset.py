@@ -29,19 +29,21 @@ def is_code_related(inp):
 
 def get_filter_rate(res_len):
     if res_len < 5:
-        return 0.95
+        return 0.97
     if res_len < 10:
-        return 0.9
+        return 0.95
     if res_len < 20:
-        return 0.8
+        return 0.9
     if res_len < 30:
-        return 0.7
-    if res_len < 40:
-        return 0.6
+        return 0.8
     if res_len < 50:
+        return 0.7
+    if res_len < 70:
+        return 0.6
+    if res_len < 80:
         return 0.5
-    if res_len < 60:
-        return 0.3
+    if res_len < 100:
+        return 0.4
     return 0
 
 def preprocess_instruct_dataset(dataset, filter: bool = False, tokenizer = None, start: int = 0, max_size: int = 10000):
@@ -75,7 +77,7 @@ def preprocess_instruct_dataset(dataset, filter: bool = False, tokenizer = None,
 
     # construct context-independent conversations
     for i in range(0, len(new_data), 5):
-        turn = random.randint(1, 4)
+        turn = random.randint(1, 3)
         new_query = ''
         
         for j in range(turn):
@@ -281,7 +283,9 @@ def generate_data(args):
         top_k=args.top_k,
         top_p=args.top_p,
         early_stopping=True,
-        repetition_penalty=1.1
+        repetition_penalty=1.1,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.eos_token_id
     )
     
     for batch_id, batch in enumerate(tqdm(dataloader)):
@@ -317,7 +321,7 @@ def generate_data(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='gpt2', choices=['gpt2', 'bloom', 'opt', 'roberta'])
-    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft-epoch5')
+    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft')
     parser.add_argument('--max_prompt_length', type=int, default=384)
     parser.add_argument('--max_new_tokens', type=int, default=384)
     parser.add_argument('--temperature', type=float, default=0.9)
