@@ -117,7 +117,7 @@ class PPOTrainer(ABC):
         self.current_step = 0
         self.train_step = 0
         
-    def fit(self, rm_tokenizer, path = None, max_new_tokens: int = 512, reward_baseline: int = 0, save_interval: int = 50):
+    def fit(self, rm_tokenizer, path = None, max_length: int = 768, reward_baseline: int = 0, save_interval: int = 50):
         if is_rank_0():
             wandb.init(project="Coati", name=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) + ' PPO')
 
@@ -127,7 +127,7 @@ class PPOTrainer(ABC):
             "top_p": 1.0,
             "do_sample": True,
             "pad_token_id": self.tokenizer.eos_token_id,
-            "max_new_tokens": max_new_tokens,
+            "max_length": max_length,
             "early_stopping": True,
             "temperature": 1.0
         }

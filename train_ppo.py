@@ -97,7 +97,7 @@ def main(args):
     rm_tokenizer.truncation_side = 'left'
     
     # TODO
-    prompt_dataset = PromptDataset(tokenizer=tokenizer, data_path=args.prompt_path, max_length=args.instruction_max_length, max_datasets_size=args.max_datasets_size)
+    prompt_dataset = PromptDataset(tokenizer=tokenizer, data_path=args.prompt_path, max_length=args.prompt_max_length, max_datasets_size=args.max_datasets_size)
     if dist.is_initialized() and dist.get_world_size() > 1:
         prompt_sampler = DistributedSampler(prompt_dataset, shuffle=True, seed=42, drop_last=True)
     data_collator = DataCollatorForPromptDataset(tokenizer=tokenizer)
@@ -134,7 +134,7 @@ def main(args):
         vf_coef=args.vf_coef
     )
 
-    trainer.fit(rm_tokenizer, path=args.save_path, max_new_tokens=args.max_new_tokens, reward_baseline=args.reward_baseline, save_interval=50)
+    trainer.fit(rm_tokenizer, path=args.save_path, max_length=args.max_length, reward_baseline=args.reward_baseline, save_interval=50)
 
     # save model checkpoint after fitting
     trainer.save_model(args.save_path, only_rank0=True, tokenizer=tokenizer)
@@ -167,8 +167,8 @@ if __name__ == '__main__':
     parser.add_argument('--kl_coef', type=float, default=0.1)
     parser.add_argument('--vf_coef', type=float, default=0.05)
     parser.add_argument('--ptx_coef', type=float, default=0.0)
-    parser.add_argument('--instruction_max_length', type=int, default=384)
-    parser.add_argument('--max_new_tokens', type=int, default=384)
+    parser.add_argument('--prompt_max_length', type=int, default=448)
+    parser.add_argument('--max_length', type=int, default=768)
     
     parser.add_argument('--lr', type=float, default=5e-6)
     

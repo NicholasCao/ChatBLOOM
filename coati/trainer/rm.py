@@ -29,7 +29,6 @@ class RewardModelTrainer(ABC):
         optim(Optimizer): the optimizer to use for training
         loss_fn (callable): the loss function to use for training
         train_dataset (Dataset): the dataset to use for training
-        valid_dataset (Dataset): the dataset to use for validation
         eval_dataset (Dataset): the dataset to use for evaluation
         batch_size (int, defaults to 1): the batch size while training
         max_epochs (int, defaults to 2): the number of epochs to train
@@ -42,7 +41,6 @@ class RewardModelTrainer(ABC):
         optim: Optimizer,
         loss_fn,
         train_dataloader: DataLoader,
-        valid_dataloader: DataLoader,
         eval_dataloader: DataLoader,
         batch_size: int = 1,
         max_epochs: int = 1,
@@ -53,7 +51,6 @@ class RewardModelTrainer(ABC):
         self.epochs = max_epochs
 
         self.train_dataloader = train_dataloader
-        self.valid_dataloader = valid_dataloader
         self.eval_dataloader = eval_dataloader
 
         self.model = strategy.setup_model(model)
@@ -152,7 +149,7 @@ class RewardModelTrainer(ABC):
                     step_bar.update()
                     
                     if (batch_id // self.accumulation_steps + 1) % 100 == 0:
-                        results = self.eval_acc(self.valid_dataloader)
+                        results = self.eval_acc(self.eval_dataloader)
                         if is_rank_0():
                             wandb.log({
                                 "dist": results['dist'],
@@ -161,11 +158,7 @@ class RewardModelTrainer(ABC):
                                 "r_std": results['reward_std'],
                                 "batch_id": batch_id
                             })
-                        logger.info(f"Eval dev: dist={results['dist']}, acc={results['acc']}, r_mean={results['reward_mean']}, r_std={results['reward_std']}", ranks=[0])
-
-            # eval
-            results = self.eval_acc(self.eval_dataloader)
-            logger.info(f"Eval dev: dist={results['dist']}, acc={results['acc']}, r_mean={results['reward_mean']}, r_std={results['reward_std']}", ranks=[0])
+                        logger.info(f"Eval: dist={results['dist']}, acc={results['acc']}, r_mean={results['reward_mean']}, r_std={results['reward_std']}", ranks=[0])
         step_bar.close()
 
     def save_model(self,

@@ -114,13 +114,11 @@ def train(args):
 
     random.shuffle(train_data)
 
-    eval_data = load_dataset('Anthropic/hh-rlhf', split='test')
-    valid_data = train_data[:1000] # split dev set
+    evel_data = train_data[:1000] # split dev set
     train_data = train_data[1000:]
 
     train_dataset = RMDataset(train_data, tokenizer, max_len)
-    valid_dataset = RMDataset(valid_data, tokenizer, max_len)
-    eval_dataset = RMDataset(eval_data, tokenizer, max_len)
+    eval_dataset = RMDataset(evel_data, tokenizer, max_len)
 
     data_collator = DataCollatorForRMDataset(tokenizer=tokenizer)
     
@@ -133,7 +131,6 @@ def train(args):
                                         sampler=train_sampler,
                                         batch_size=args.batch_size,
                                         collate_fn=data_collator)
-    valid_dataloader = DataLoader(valid_dataset, batch_size=32, collate_fn=data_collator)
     eval_dataloader = DataLoader(eval_dataset, batch_size=32, collate_fn=data_collator)
 
     trainer = RewardModelTrainer(model=model,
@@ -141,7 +138,6 @@ def train(args):
                                  optim=optim,
                                  loss_fn=loss_fn,
                                  train_dataloader=train_dataloader,
-                                 valid_dataloader=valid_dataloader,
                                  eval_dataloader=eval_dataloader,
                                  batch_size=args.batch_size,
                                  max_epochs=args.max_epochs,
@@ -166,7 +162,7 @@ if __name__ == '__main__':
     parser.add_argument('--pretrain', type=str, default=None)
     parser.add_argument('--model_path', type=str, default=None)
     parser.add_argument('--need_optim_ckpt', type=bool, default=False)
-    parser.add_argument('--data_path', type=str, default='data/rm_data.json')
+    parser.add_argument('--data_path', type=str, default='data/generated_rm_data.json')
     parser.add_argument('--save_path', type=str, default='outputs/rm_model')
     parser.add_argument('--max_epochs', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=1)

@@ -23,12 +23,9 @@ class RMDataset(Dataset):
         super().__init__()
         self.chosen = []
         self.reject = []
-        if special_token is None:
-            self.end_token = tokenizer.eos_token
-        else:
-            self.end_token = special_token
+
         for data in tqdm(dataset, disable=not is_rank_0()):
-            chosen = data['chosen'].strip() + self.end_token
+            chosen = data['query'] + data['response'].strip()
             chosen_token = tokenizer(chosen,
                                      max_length=max_length,
                                      padding=False,
@@ -38,7 +35,7 @@ class RMDataset(Dataset):
                 "input_ids": chosen_token['input_ids'][0],
             })
 
-            reject = data['rejected'].strip() + self.end_token
+            reject = data['query'] + data['responses'][0].strip()
             reject_token = tokenizer(reject,
                                      max_length=max_length,
                                      padding=False,
