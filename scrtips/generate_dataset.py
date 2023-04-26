@@ -23,20 +23,20 @@ def is_code_related(inp):
 def is_zh(text):
     zh = r'[\u4e00-\u9fff]'
     result = re.findall(zh, text)
-    return len(result) > 0
+    return len(result) > 10
 
 def is_english(text):
     cnt = 0
     for char in text:
         if char not in string.ascii_letters + string.punctuation + string.whitespace + string.digits:
             cnt += 1
-            if cnt > min(len(text) * 0.03, 5):
+            if cnt > min(len(text) * 0.02, 5):
                 return False
     return True
 
 def preprocess_sharegpt(dataset):
     new_data = []
-    for data in dataset:
+    for data in tqdm(dataset):
         conversations = data['conversations']
         query = ''
         response = ''
@@ -56,7 +56,6 @@ def preprocess_sharegpt(dataset):
             elif conv['from'] == 'system':
                 continue
             else:
-                print(conv['from'])
                 raise NotImplementedError()
 
         if len(texts) < 2:
@@ -81,7 +80,7 @@ def preprocess_sharegpt(dataset):
             continue
 
         query += '<Assistant>: '
-        response = texts[-1][0].replace('<Assistant>: ', '')
+        response = texts[-1][0].strip().replace('<Assistant>: ', '')
     
         if 'gpt' not in response.lower():
             new_data.append({'query': query, 'response': response})
@@ -110,7 +109,7 @@ def get_filter_rate(res_len):
 def preprocess_instruct_dataset(dataset, filter: bool = False, tokenizer = None, max_size: int = -1):
     new_data = []
     
-    for data in dataset:
+    for data in tqdm(dataset):
         query = data['instruction'] + data['input']
         
         query = '<Human>: ' + query.strip().replace('\n\n', '\n') + '<eoh> <Assistant>: '
@@ -118,7 +117,7 @@ def preprocess_instruct_dataset(dataset, filter: bool = False, tokenizer = None,
         
         if filter:
             # filter some short query
-            if len(tokenizer.tokenize(query)) < 20:
+            if len(tokenizer.tokenize(query)) < 10:
                 continue
 
             # filter some short response
@@ -161,7 +160,7 @@ def preprocess_instruct_dataset(dataset, filter: bool = False, tokenizer = None,
 def preprocess_multiturn_chat(dataset, filter: bool = True, tokenizer = None, max_size: int = -1):
     new_data = []
     
-    for data in dataset:
+    for data in tqdm(dataset):
 
         query = data['instruction'].strip().replace('\n\n', '\n').replace('\nAssistant:', '<eoh> Assistant:')
         query = re.sub('Assistant:(?=\S+)', 'Assistant: ', query)
@@ -193,7 +192,7 @@ def preprocess_multiturn_chat(dataset, filter: bool = True, tokenizer = None, ma
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_path', type=str, default='bigscience/bloom-1b7')
-    parser.add_argument('--sharegpt_data_path', type=str, default='data/sharegpt_20230401_clean_lang_split.json')
+    parser.add_argument('--sharegpt_data_path', type=str, default='data/sharegpt_20230401_clean_lang_split2.json')
     parser.add_argument('--gpt4llm_data_path', type=str, default='data/alpaca_gpt4_data.json')
     parser.add_argument('--gpt4llm_zh_data_path', type=str, default='data/alpaca_gpt4_data_zh.json')
     parser.add_argument('--sft_output_path', type=str, default='data/sft_data.json')
@@ -213,7 +212,7 @@ if __name__ == '__main__':
     data += preprocess_instruct_dataset(dataset)
     
     dataset = load_dataset('BelleGroup/train_1M_CN', split='train')
-    data += preprocess_instruct_dataset(dataset, filter=True, tokenizer=tokenizer, max_size=100000)
+    data += preprocess_instruct_dataset(dataset, filter=True, tokenizer=tokenizer, max_size=80000)
     
     dataset = load_dataset('BelleGroup/multiturn_chat_0.8M', split='train')
     data += preprocess_multiturn_chat(dataset, filter=True, tokenizer=tokenizer, max_size=100000)
@@ -223,8 +222,8 @@ if __name__ == '__main__':
     random.shuffle(data)
     
     prompt_data = data[:20000]
-    rm_data = data[20000:40000]
-    sft_dta = data[40000:]
+    rm_data = data[20000:50000]
+    sft_dta = data[50000:]
     
     with open(args.sft_output_path, 'w') as file:
         json.dump(sft_dta, file)
