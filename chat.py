@@ -4,7 +4,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
 
 
 def chat(args, model, tokenizer, history):
-    inputs = tokenizer(history, return_tensors='pt', max_length=args.prompt_max_length, truncation=True).to(torch.cuda.current_device())
+    inputs = tokenizer(history, return_tensors='pt', max_length=args.prompt_max_length, truncation=True).to(model.device)
     input_ids = inputs['input_ids']
     attention_mask = inputs['attention_mask']
     
@@ -26,7 +26,7 @@ def chat(args, model, tokenizer, history):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='bloom', choices=['gpt2', 'bloom', 'opt', 'roberta'])
-    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft-2')
+    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft-3')
     parser.add_argument('--prompt_max_length', type=int, default=448)
     parser.add_argument('--max_length', type=int, default=768)
     parser.add_argument('--temperature', type=float, default=0.8)
@@ -65,8 +65,9 @@ if __name__ == '__main__':
             history = ''
             continue
 
-        history += f'<Human>: {inp} <eoh> <Assistant>: '
+        history += f'<Human>: {inp} <eoh> <Assistant>:'
         response = chat(args, model, tokenizer, history).replace('<eoa>', '')
+        history += response + '<eoa>'
         print(f'<Assistant>: {response}')
     
     print('Bye ~ 👋')
