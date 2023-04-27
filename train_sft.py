@@ -101,7 +101,7 @@ def train(args):
 
     # configure optimizer
     if args.strategy.startswith('colossalai'):
-        optim = HybridAdam(model.parameters(), lr=args.lr, clipping_norm=1.0)
+        optim = HybridAdam(model.parameters(), lr=args.lr, weight_decay=1e-5, clipping_norm=1.0)
     else:
         optim = Adam(model.parameters(), lr=args.lr)
 

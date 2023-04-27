@@ -19,6 +19,7 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.trainer import get_scheduler
 
 from colossalai.logging import get_dist_logger
+from colossalai.utils.common import clip_grad_norm
 
 from .strategies import Strategy
 from .utils import is_rank_0
@@ -107,6 +108,8 @@ class SFTTrainer(ABC):
 
                 # gradient accumulation
                 if (batch_id + 1) % self.accumulation_steps == 0:
+                    clip_grad_norm(self.model.parameters(), 1.0)
+                    
                     self.strategy.optimizer_step(self.optimizer)
                     self.optimizer.zero_grad()
                     self.scheduler.step()

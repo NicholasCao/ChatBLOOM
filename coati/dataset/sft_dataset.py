@@ -136,6 +136,7 @@ def chat_preprocess(dataset, tokenizer: Callable, max_length: int = 512):
     output_lens = []
 
     for data in tqdm(dataset, disable=not is_rank_0(), mininterval=3):
+        assert data['response'].startswith(' ')
 
         input_text = data['query'] + data['response'] + tokenizer.eos_token
         

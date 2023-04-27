@@ -34,7 +34,7 @@ def is_english(text):
                 return False
     return True
 
-def preprocess_sharegpt(dataset):
+def preprocess_sharegpt(dataset, tokenizer):
     new_data = []
     for data in tqdm(dataset):
         conversations = data['conversations']
@@ -46,7 +46,12 @@ def preprocess_sharegpt(dataset):
         if not is_zh(all_text) and not is_english(all_text):
             continue
 
+        go_next = False
         for i, conv in enumerate(conversations):
+            if conv['value'].lower().startswith('you:') or conv['value'].lower().startswith('pree:'):
+                go_next = True
+                break
+
             if conv['from'] in ['human', 'user']:
                 # 0 from human
                 texts.append(('<Human>: ' + conv['value'].replace('\n\n', '\n') + '<eoh>', 0))
@@ -58,12 +63,12 @@ def preprocess_sharegpt(dataset):
             else:
                 raise NotImplementedError()
 
-        if len(texts) < 2:
+        if go_next or len(texts) < 2:
             continue
         
         if texts[-1][1] != 1:
             texts = texts[:-1]
-            if len(texts) < 2:
+            if len(texts) < 3 or (len(texts) == 2 and len(tokenizer.tokenze(texts[0][0])) < 20) :
                 continue
             
         last = None
@@ -79,8 +84,8 @@ def preprocess_sharegpt(dataset):
         if go_next or texts[-1][1] == 0:
             continue
 
-        query += '<Assistant>: '
-        response = texts[-1][0].strip().replace('<Assistant>: ', '')
+        query += '<Assistant>:'
+        response = ' ' + texts[-1][0].replace('<Assistant>:', '').strip()
     
         if 'gpt' not in response.lower():
             new_data.append({'query': query, 'response': response})
@@ -112,8 +117,8 @@ def preprocess_instruct_dataset(dataset, filter: bool = False, tokenizer = None,
     for data in tqdm(dataset):
         query = data['instruction'] + data['input']
         
-        query = '<Human>: ' + query.strip().replace('\n\n', '\n') + '<eoh> <Assistant>: '
-        response = data['output'].strip().replace('\n\n', '\n') + '<eoa>'
+        query = '<Human>: ' + query.strip().replace('\n\n', '\n') + '<eoh> <Assistant>:'
+        response = ' ' + data['output'].strip().replace('\n\n', '\n') + '<eoa>'
         
         if filter:
             # filter some short query
@@ -166,9 +171,9 @@ def preprocess_multiturn_chat(dataset, filter: bool = True, tokenizer = None, ma
         query = re.sub('Assistant:(?=\S+)', 'Assistant: ', query)
         query = query.replace('\nHuman:', '<eoa> Human:')
         query = re.sub('Human:(?=\S+)', 'Human: ', query)
-        query = query.replace('Human:', '<Human>:').replace('Assistant:', '<Assistant>:') + ' '
+        query = query.replace('Human:', '<Human>:').replace('Assistant:', '<Assistant>:')
         
-        response = data['output'].strip().replace('\n\n', '\n') + '<eoa>'
+        response = ' ' + data['output'].strip().replace('\n\n', '\n') + '<eoa>'
         
         if filter:
             if len(tokenizer.tokenize(query)) < 50:
@@ -204,7 +209,7 @@ if __name__ == '__main__':
     data = []
 
     dataset = jload(args.sharegpt_data_path)
-    data += preprocess_sharegpt(dataset)
+    data += preprocess_sharegpt(dataset, tokenizer=tokenizer)
 
     dataset = jload(args.gpt4llm_data_path)
     data += preprocess_instruct_dataset(dataset)
@@ -212,10 +217,10 @@ if __name__ == '__main__':
     data += preprocess_instruct_dataset(dataset)
     
     dataset = load_dataset('BelleGroup/train_1M_CN', split='train')
-    data += preprocess_instruct_dataset(dataset, filter=True, tokenizer=tokenizer, max_size=80000)
+    data += preprocess_instruct_dataset(dataset, filter=True, tokenizer=tokenizer, max_size=120000)
     
     dataset = load_dataset('BelleGroup/multiturn_chat_0.8M', split='train')
-    data += preprocess_multiturn_chat(dataset, filter=True, tokenizer=tokenizer, max_size=100000)
+    data += preprocess_multiturn_chat(dataset, filter=True, tokenizer=tokenizer, max_size=150000)
     
     print(f'Total data size: {len(data)}')
 
@@ -223,7 +228,13 @@ if __name__ == '__main__':
     
     prompt_data = data[:20000]
     rm_data = data[20000:50000]
-    sft_dta = data[50000:]
+    sft_dta = data[50000:] + [{
+        "query": "<Human>: 你好 <eoh><Assistant>:",
+        "response": " 您好！有什么可以帮助您的吗？"
+    }, {
+        "query": "<Human>: 你是谁 <eoh><Assistant>:",
+        "response": " 我是一个人工智能语言模型助手，可以进行自然语言交互，并尝试回答您的问题和提供帮助。"
+    }]
     
     with open(args.sft_output_path, 'w') as file:
         json.dump(sft_dta, file)
