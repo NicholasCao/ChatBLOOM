@@ -1,7 +1,6 @@
 import argparse
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
-
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 def chat(args, model, tokenizer, history):
     inputs = tokenizer(history, return_tensors='pt', max_length=args.prompt_max_length, truncation=True).to(model.device)
@@ -25,8 +24,7 @@ def chat(args, model, tokenizer, history):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', default='bloom', choices=['gpt2', 'bloom', 'opt', 'roberta'])
-    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft')
+    parser.add_argument('--model_path', type=str, default='nicholascao/chatbloom-1b7-sft')
     parser.add_argument('--prompt_max_length', type=int, default=448)
     parser.add_argument('--max_length', type=int, default=768)
     parser.add_argument('--temperature', type=float, default=0.8)
@@ -34,17 +32,9 @@ if __name__ == '__main__':
     parser.add_argument('--top_p', type=float, default=0.9)
     args = parser.parse_args()
     
-    if args.model == 'gpt2':
-        tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-        tokenizer.pad_token = tokenizer.eos_token
-    elif args.model == 'bloom':
-        tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-        tokenizer.pad_token = tokenizer.eos_token
-    elif args.model == 'opt':
-        tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-    else:
-        raise ValueError(f'Unsupported model "{args.model}"')
-    
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    tokenizer.pad_token = tokenizer.eos_token
+
     tokenizer.truncation_side = 'left'
 
     model = AutoModelForCausalLM.from_pretrained(args.model_path)
