@@ -6,8 +6,8 @@ torchrun --standalone --nproc_per_node=4 train_ppo.py \
     --rm_model bloom \
     --rm_pretrain outputs/bloom-560m-rm \
     --lr 1e-6 \
-    --instruction_max_length 384 \
-    --max_new_tokens 384 \
+    --prompt_max_length 448 \
+    --max_length 768 \
     --batch_size 32 \
     --mini_batch_size 2 \
     --accumulation_steps 4 \
@@ -15,4 +15,4 @@ torchrun --standalone --nproc_per_node=4 train_ppo.py \
     --ppo_epochs 4 \
     --kl_coef 0.1 \
     --vf_coef 0.05 \
-    --reward_baseline 60
+    --reward_baseline 50

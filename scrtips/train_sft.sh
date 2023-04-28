@@ -1,5 +1,5 @@
 torchrun --standalone --nproc_per_node=4 train_sft.py \
-    --pretrain outputs/bloom-1b7-instruction-tuning \
+    --pretrain bigscience/bloom-1b7 \
     --model bloom \
     --strategy colossalai_zero2 \
     --data_path data/sft_data.json \

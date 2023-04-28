@@ -8,5 +8,5 @@ torchrun --standalone --nproc_per_node=4 train_rm.py \
     --accumulation_steps 1 \
     --max_epochs 1 \
     --lr 1e-5 \
-    --data_path data/rm_data.json
+    --data_path data/generated_rm_data.json
 

@@ -26,7 +26,7 @@ def chat(args, model, tokenizer, history):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='bloom', choices=['gpt2', 'bloom', 'opt', 'roberta'])
-    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft-3')
+    parser.add_argument('--model_path', type=str, default='outputs/bloom-1b7-sft')
     parser.add_argument('--prompt_max_length', type=int, default=448)
     parser.add_argument('--max_length', type=int, default=768)
     parser.add_argument('--temperature', type=float, default=0.8)
@@ -52,7 +52,6 @@ if __name__ == '__main__':
     model.to(torch.cuda.current_device())
     model.eval()
 
-    
     print('开始聊天。输入/reset清空聊天历史，输入/exit退出。')
     print('Start the chat. Type `/reset` to clear the chat history and `/exit` to exit.')
     history = ''
@@ -68,6 +67,6 @@ if __name__ == '__main__':
         history += f'<Human>: {inp} <eoh> <Assistant>:'
         response = chat(args, model, tokenizer, history).replace('<eoa>', '')
         history += response + '<eoa>'
-        print(f'<Assistant>: {response}')
+        print(f'<Assistant>:{response}')
     
     print('Bye ~ 👋')
