@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from ..lora import LoRAModule
-
+from ..utils import hf_get_causal_hidden_layers
 
 class RewardModel(LoRAModule):
     """
@@ -19,24 +19,23 @@ class RewardModel(LoRAModule):
     def __init__(self,
                  model: nn.Module,
                  lora_rank: int = 0,
-                 lora_train_bias: str = 'none') -> None:
+                 lora_train_bias: str = 'none',
+                 freeze_layer_ratio: float = 0.5) -> None:
         super().__init__(lora_rank=lora_rank, lora_train_bias=lora_train_bias)
         self.model = model
-        self.convert_to_lora()
+        hidden_layers = hf_get_causal_hidden_layers(model)
+        num_layers_freeze = int(len(hidden_layers) * freeze_layer_ratio)
+        if num_layers_freeze > 0:
+            hidden_layers_to_freeze = list(hidden_layers)[:num_layers_freeze]
+        else:
+            hidden_layers_to_freeze = []
 
-        # if value_head is not None:
-        #     if value_head.out_features != 1:
-        #         raise ValueError("The value head of reward model's output dim should be 1!")
-        #     self.value_head = value_head
-        # else:
-        #     self.value_head = nn.Linear(model.config.n_embd, 1)
+        for layer in hidden_layers_to_freeze:
+            layer.requires_grad_(False)
+
+        self.convert_to_lora()
 
     def forward(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         outputs = self.model(input_ids, attention_mask=attention_mask)
         value = outputs['logits']
         return value
-        
-        # last_hidden_states = outputs['last_hidden_state']
-        # values = self.value_head(last_hidden_states)[:, :-1]
-        # value = values.mean(dim=1).squeeze(1)    # ensure shape is (B)
-        # return value

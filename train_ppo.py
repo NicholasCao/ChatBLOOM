@@ -48,7 +48,7 @@ def main(args):
     # configure model
     with strategy.model_init_context():
         if args.model == 'bloom':
-            model = BLOOMPPO(pretrained=args.pretrain)
+            model = BLOOMPPO(pretrained=args.pretrain, freeze_layer_ratio=args.freeze_layer_ratio)
         else:
             raise ValueError(f'Unsupported actor model "{args.model}"')
     
@@ -71,8 +71,7 @@ def main(args):
         reward_model.to(torch.float16).to(torch.cuda.current_device())
 
     reward_model.eval()
-    for n, param in reward_model.named_parameters():
-        param.requires_grad = False
+    reward_model.requires_grad_(False)
 
     # configure optimizer
     if args.strategy.startswith('colossalai'):
@@ -95,6 +94,7 @@ def main(args):
 
     tokenizer.truncation_side = 'left'
     rm_tokenizer.truncation_side = 'left'
+    rm_tokenizer.padding_side = 'right'
     
     # TODO
     prompt_dataset = PromptDataset(tokenizer=tokenizer, data_path=args.prompt_path, max_length=args.prompt_max_length, max_datasets_size=args.max_datasets_size)
@@ -155,6 +155,7 @@ if __name__ == '__main__':
                         help='strategy to use')
     parser.add_argument('--model', default='gpt2', choices=['gpt2', 'bloom', 'opt', 'llama', 'roberta'])
     parser.add_argument('--pretrain', type=str, default=None)
+    parser.add_argument('--freeze_layer_ratio', type=float, default=0.67)
     parser.add_argument('--rm_model', default=None, choices=['gpt2', 'bloom', 'opt', 'llama', 'roberta'])
     parser.add_argument('--rm_pretrain', type=str, default=None)
     parser.add_argument('--save_path', type=str, default='outputs/ppo')

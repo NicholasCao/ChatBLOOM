@@ -1,3 +1,4 @@
+
 torchrun --standalone --nproc_per_node=4 train_ppo.py \
     --prompt_path data/prompt_data.json \
     --strategy colossalai_zero2 \
@@ -13,6 +14,7 @@ torchrun --standalone --nproc_per_node=4 train_ppo.py \
     --accumulation_steps 4 \
     --save_path outputs/bloom-1b7-ppo \
     --ppo_epochs 4 \
-    --kl_coef 0.1 \
-    --vf_coef 0.05 \
-    --reward_baseline 50
+    --kl_coef 0.05 \
+    --vf_coef 0.1 \
+    --reward_baseline 20 \
+    --freeze_layer_ratio 0.67

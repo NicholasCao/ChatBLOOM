@@ -50,7 +50,7 @@ def train(args):
     # configure model
     with strategy.model_init_context():
         if args.model == 'bloom':
-            model = BLOOMRM(pretrained=args.pretrain, lora_rank=args.lora_rank).to(torch.cuda.current_device())
+            model = BLOOMRM(pretrained=args.pretrain, lora_rank=args.lora_rank, freeze_layer_ratio=args.freeze_layer_ratio).to(torch.cuda.current_device())
         elif args.model == 'opt':
             model = OPTRM(pretrained=args.pretrain, lora_rank=args.lora_rank).to(torch.cuda.current_device())
         elif args.model == 'gpt2':
@@ -83,10 +83,9 @@ def train(args):
 
     if args.model == 'llama':
         tokenizer = prepare_llama_tokenizer_and_embedding(tokenizer, model)
-    else:
-        tokenizer.pad_token = tokenizer.eos_token
 
     tokenizer.truncation_side = 'left'
+    tokenizer.padding_side = 'right'
     
     add_tokens(model, tokenizer, {
         '<Human>': ' Human',
@@ -161,6 +160,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', choices=['gpt2', 'bloom', 'opt', 'deberta', 'llama', 'roberta'], default='bloom')
     parser.add_argument('--pretrain', type=str, default=None)
     parser.add_argument('--model_path', type=str, default=None)
+    parser.add_argument('--freeze_layer_ratio', type=float, default=0.5)
     parser.add_argument('--need_optim_ckpt', type=bool, default=False)
     parser.add_argument('--data_path', type=str, default='data/generated_rm_data.json')
     parser.add_argument('--save_path', type=str, default='outputs/rm_model')

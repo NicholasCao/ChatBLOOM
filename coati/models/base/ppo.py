@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from ..lora import LoRAModule
+from ..utils import hf_get_causal_hidden_layers
 
 class ValueHead(nn.Module):
     r"""
@@ -47,10 +48,22 @@ class PPOModel(LoRAModule):
         model: nn.Module,
         lora_rank: int = 0,
         lora_train_bias: str = 'none',
+        freeze_layer_ratio: float = 0.67,
     ) -> None:
 
         super().__init__(lora_rank=lora_rank, lora_train_bias=lora_train_bias)
         self.model = model
+
+        hidden_layers = hf_get_causal_hidden_layers(model)
+        num_layers_freeze = int(len(hidden_layers) * freeze_layer_ratio)
+        if num_layers_freeze > 0:
+            hidden_layers_to_freeze = list(hidden_layers)[:num_layers_freeze]
+        else:
+            hidden_layers_to_freeze = []
+
+        for layer in hidden_layers_to_freeze:
+            layer.requires_grad_(False)
+
         self.convert_to_lora()
 
         self.v_head = ValueHead(self.model.config)

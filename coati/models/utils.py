@@ -1,4 +1,5 @@
 from typing import Optional, Union, Dict
+import functools
 
 import loralib as lora
 import torch
@@ -94,6 +95,54 @@ def convert_to_lora(model: nn.Module,
                                                 lora_dropout=lora_dropout,
                                                 fan_in_fan_out=fan_in_fan_out,
                                                 merge_weights=merge_weights)
+
+def rhasattr(obj, attr):
+    """A chain-able attribute version of hasattr. For example, to check if
+    `obj` has the attribute `foo.bar.baz`, you can use:
+        `rhasattr(obj, "foo.bar.baz")`
+    Reference: https://stackoverflow.com/a/67303315
+    """
+    _nested_attrs = attr.split(".")
+    _curr_obj = obj
+    for _a in _nested_attrs[:-1]:
+        if hasattr(_curr_obj, _a):
+            _curr_obj = getattr(_curr_obj, _a)
+        else:
+            return False
+    return hasattr(_curr_obj, _nested_attrs[-1])
+
+def rgetattr(obj, attr: str, *args):
+    """A chain-able attribute version of getattr. For example, to get the
+    attribute `foo.bar.baz` from `obj`, you can use:
+        `rgetattr(obj, "foo.bar.baz")`
+    Reference: https://stackoverflow.com/a/31174427
+    """
+
+    def _getattr(obj, attr):
+        return getattr(obj, attr, *args)
+
+    return functools.reduce(_getattr, [obj] + attr.split("."))
+
+
+def findattr(obj, attrs):
+    for attr in attrs:
+        if rhasattr(obj, attr):
+            return rgetattr(obj, attr)
+
+def hf_get_causal_hidden_layers(model: nn.Module):
+    """Returns the hidden layers of the specified model.
+    NOTE: Different model configurations have different hidden layer attribute names.
+        - transformer.h: (BloomForCausalLM, GPT2LMHeadModel, GPTJForCausalLM)
+        - model.decoder.layers: (OPTForCausalLM)
+        - gpt_neox.layers: (GPTNeoXForCausalLM)
+    """
+    hidden_layers_attrs = (
+        "transformer.h",
+        "model.decoder.layers",
+        "gpt_neox.layers",
+        "transformer.layers",
+    )
+    return findattr(model, hidden_layers_attrs)
 
 def add_tokens(model, tokenizer, tokens: Dict[str, str]):
     model = model.model

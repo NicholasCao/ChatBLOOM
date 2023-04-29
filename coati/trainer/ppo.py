@@ -116,7 +116,8 @@ class PPOTrainer(ABC):
         
         self.current_step = 0
         self.train_step = 0
-        
+    
+    @PPODecorators.empty_cuda_cache()
     def fit(self, rm_tokenizer, path = None, max_length: int = 768, reward_baseline: int = 0, save_interval: int = 50):
         if is_rank_0():
             wandb.init(project="Coati", name=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) + ' PPO')
@@ -143,9 +144,9 @@ class PPOTrainer(ABC):
             batch["response"] = self.tokenizer.batch_decode(response_tensors, skip_special_tokens=True)
             
             # Compute reward
-            texts = [q + r for q, r in zip(batch["query"], batch["response"])]
+            texts = [q + r + rm_tokenizer.eos_token for q, r in zip(batch["query"], batch["response"])]
             
-            reward_inputs = rm_tokenizer(texts, padding=True, truncation=True, return_tensors="pt", max_length=512).to(
+            reward_inputs = rm_tokenizer(texts, padding=True, truncation=True, return_tensors="pt", max_length=max_length).to(
                 torch.cuda.current_device()
             )
             
@@ -428,6 +429,9 @@ class PPOTrainer(ABC):
             query_batch = queries[i * fbs : (i + 1) * fbs]
             response_batch = responses[i * fbs : (i + 1) * fbs]
             logits, _, values = model(**input_kwargs)
+
+            logits = logits.to(torch.float32)
+            values = values.to(torch.float32)
 
             input_ids = input_kwargs["input_ids"]
             attention_mask = input_kwargs["attention_mask"]

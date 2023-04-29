@@ -25,7 +25,7 @@ class RMDataset(Dataset):
         self.reject = []
 
         for data in tqdm(dataset, disable=not is_rank_0()):
-            chosen = data['query'] + data['response'].strip()
+            chosen = data['query'] + data['response'] + tokenizer.eos_token
             chosen_token = tokenizer(chosen,
                                      max_length=max_length,
                                      padding=False,
@@ -35,7 +35,7 @@ class RMDataset(Dataset):
                 "input_ids": chosen_token['input_ids'][0],
             })
 
-            reject = data['query'] + data['responses'][0].strip()
+            reject = data['query'] + data['responses'][0] + tokenizer.eos_token
             reject_token = tokenizer(reject,
                                      max_length=max_length,
                                      padding=False,

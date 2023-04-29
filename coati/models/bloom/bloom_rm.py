@@ -23,7 +23,8 @@ class BLOOMRM(RewardModel):
                  config: Optional[BloomConfig] = None,
                  checkpoint: bool = False,
                  lora_rank: int = 0,
-                 lora_train_bias: str = 'none') -> None:
+                 lora_train_bias: str = 'none',
+                 freeze_layer_ratio: float = 0.5) -> None:
         if pretrained is not None:
             model = BloomForSequenceClassification.from_pretrained(pretrained, num_labels=1)
         elif config is not None:
@@ -36,4 +37,4 @@ class BLOOMRM(RewardModel):
         if checkpoint:
             model.gradient_checkpointing_enable()
 
-        super().__init__(model, lora_rank, lora_train_bias)
+        super().__init__(model, lora_rank, lora_train_bias, freeze_layer_ratio)

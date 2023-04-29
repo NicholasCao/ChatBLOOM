@@ -7,6 +7,7 @@ torchrun --standalone --nproc_per_node=4 train_rm.py \
     --batch_size 8 \
     --accumulation_steps 1 \
     --max_epochs 1 \
-    --lr 1e-5 \
-    --data_path data/generated_rm_data.json
-
+    --lr 5e-6 \
+    --data_path data/generated_rm_data.json \
+    --max_len 768 \
+    --freeze_layer_ratio 0.33
