@@ -145,7 +145,8 @@ docs/.build
 # wandb log
 example/wandb/
 
-outputs
-logs
-data
-wandb
+outputs/*
+logs/*
+data/*
+!data/README.md
+wandb/*
