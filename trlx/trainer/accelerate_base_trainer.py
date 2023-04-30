@@ -35,6 +35,7 @@ from trlx.utils.modeling import (
     get_delta_model_class,
     parse_delta_kwargs,
 )
+from trlx.trainer.utils import PPODecorators
 
 logger = logging.get_logger(__name__)
 
@@ -484,6 +485,7 @@ class AccelerateRLTrainer(BaseRLTrainer):
         with context(self.model):
             yield
 
+    @PPODecorators.empty_cuda_cache()
     def learn(self):  # noqa: C901
         """
         Samples batches from `self.store`, updates model and periodically evaluates it on `self.eval_dataloader`

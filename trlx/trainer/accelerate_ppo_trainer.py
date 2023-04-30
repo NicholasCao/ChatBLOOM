@@ -26,9 +26,9 @@ from trlx.trainer import register_trainer
 from trlx.trainer.accelerate_base_trainer import AccelerateRLTrainer
 from trlx.utils import Clock, infinite_dataloader
 from trlx.utils.modeling import RunningMoments, gather_dict, logprobs_of_labels
+from trlx.trainer.utils import PPODecorators
 
 logger = logging.get_logger(__name__)
-
 
 @register_trainer
 class AcceleratePPOTrainer(AccelerateRLTrainer):
@@ -248,6 +248,7 @@ class AcceleratePPOTrainer(AccelerateRLTrainer):
         prompt_dataloader = self.accelerator.prepare_data_loader(prompt_dataloader)
         self.prompt_iterator = infinite_dataloader(prompt_dataloader)
 
+    @PPODecorators.empty_cuda_cache()
     def make_experience(self, num_rollouts: int = 1024, iter_count: int = 0):  # noqa:
         """Make experiences
 
