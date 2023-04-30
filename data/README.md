@@ -1,4 +1,5 @@
 # Data
+
 ## ShareGPT
 We use the data from https://huggingface.co/datasets/jeffwan/sharegpt_vicuna and follow the script it has written to process.
 
@@ -16,3 +17,6 @@ python merge.py sharegpt_20230401_clean_lang_zh.json sharegpt_20230401_clean_lan
 
 python split_long_conversation.py --in sharegpt_20230401_clean_lang.json --out sharegpt_20230401_clean_lang_split2.json --model-name bigscience/bloom-1b7 --max-length 800
 ```
+
+## GPT-4-LLM
+Download data directly from https://github.com/Instruction-Tuning-with-GPT-4/GPT-4-LLM
