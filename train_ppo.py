@@ -1,181 +1,164 @@
-import argparse
+import json
+import math
 import os
-import copy
+import sys
+import io
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-import pandas as pd
 import torch
-import torch.distributed as dist
-from coati.dataset import DataCollatorForSupervisedDataset, PromptDataset, DataCollatorForPromptDataset
-from coati.models.bloom import BLOOMRM, BLOOMActor, BLOOMCritic, BLOOMPPO
-from coati.models.gpt import GPTRM, GPTActor, GPTCritic
-from coati.models.llama import LlamaActor, LlamaCritic, LlamaRM
-from coati.models.opt import OPTRM, OPTActor, OPTCritic
-from coati.models.roberta import RoBERTaRM, RoBERTaActor, RoBERTaCritic
-from coati.trainer import PPOTrainer
-from coati.trainer.strategies import ColossalAIStrategy, DDPStrategy, NaiveStrategy
-from coati.utils import prepare_llama_tokenizer_and_embedding
-from torch.optim import Adam
-from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
-from transformers import AutoTokenizer, BloomTokenizerFast, GPT2Tokenizer, LlamaTokenizer, RobertaTokenizer
+from torch import nn
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModelForSequenceClassification
 
-from colossalai.nn.optimizer import HybridAdam
+import trlx
+from trlx.data.default_configs import (
+    ModelConfig,
+    OptimizerConfig,
+    PPOConfig,
+    SchedulerConfig,
+    TokenizerConfig,
+    TrainConfig,
+    TRLConfig,
+)
 
+default_config = TRLConfig(
+    train=TrainConfig(
+        seq_length=768,
+        epochs=10000,
+        total_steps=5000,
+        batch_size=4,
+        checkpoint_interval=1000,
+        eval_interval=500,
+        pipeline="PromptPipeline",
+        trainer="AcceleratePPOTrainer",
+        checkpoint_dir="outputs/bloom-1b7-ppo",
+    ),
+    model=ModelConfig(model_path="outputs/bloom-1b7-sft", num_layers_unfrozen=6),
+    tokenizer=TokenizerConfig(tokenizer_path="outputs/bloom-1b7-sft", truncation_side="left"),
+    optimizer=OptimizerConfig(name="adamw", kwargs=dict(lr=5e-6, betas=(0.9, 0.95), eps=1.0e-8, weight_decay=1.0e-6)),
+    scheduler=SchedulerConfig(name="cosine_annealing", kwargs=dict(T_max=10000, eta_min=1e-6)),
+    method=PPOConfig(
+        name="PPOConfig",
+        num_rollouts=64,
+        chunk_size=4,
+        ppo_epochs=4,
+        init_kl_coef=0.05,
+        target=6,
+        horizon=10000,
+        gamma=1,
+        lam=0.95,
+        cliprange=0.2,
+        cliprange_value=0.2,
+        vf_coef=1,
+        scale_reward="running",
+        ref_mean=None,
+        ref_std=None,
+        cliprange_reward=10,
+        gen_kwargs=dict(
+            max_new_tokens=320,
+            top_k=0,
+            top_p=1.0,
+            do_sample=True,
+        ),
+    ),
+)
 
-def create_reference_model(model):
-    ref_model = copy.deepcopy(model)
-    
-    for n, param in ref_model.named_parameters():
-        param.requires_grad = False
+import io
 
-    return ref_model.eval()
+def _make_r_io_base(f, mode: str):
+    if not isinstance(f, io.IOBase):
+        f = open(f, mode=mode)
+    return f
 
-def main(args):
-    # configure strategy
-    if args.strategy == 'naive':
-        strategy = NaiveStrategy()
-    elif args.strategy == 'ddp':
-        strategy = DDPStrategy()
-    elif args.strategy == 'colossalai_gemini':
-        strategy = ColossalAIStrategy(stage=3, placement_policy='cuda', initial_scale=2**5)
-    elif args.strategy == 'colossalai_zero2':
-        strategy = ColossalAIStrategy(stage=2, placement_policy='cuda')
+def jload(f, mode="r"):
+    """Load a .json file into a dictionary."""
+    f = _make_r_io_base(f, mode)
+    jdict = json.load(f)
+    f.close()
+    return jdict
+
+rm_model_path = 'outputs/bloom-1b7-rm'
+
+def create_reward_fn():  # noqa:  C901
+    reward_tokenizer = AutoTokenizer.from_pretrained(rm_model_path)
+    # reward_tokenizer.pad_token = reward_tokenizer.eos_token
+    reward_tokenizer.truncation_side = "left"
+    reward_tokenizer.padding_side = "right"
+
+    if os.environ.get("RANK", "0") == "0":
+        class RewardModel(nn.Module):
+            def __init__(self, checkpoint_path):
+                super().__init__()
+                self.model = AutoModelForSequenceClassification.from_pretrained(checkpoint_path)
+
+            def forward(self, input_ids: torch.LongTensor, attention_mask = None) -> torch.Tensor:
+                outputs = self.model(input_ids, attention_mask=attention_mask)
+                value = outputs['logits'].squeeze(-1)
+                return value
+                    
+        reward_model = RewardModel(rm_model_path)
+
+        reward_model.eval()
+        reward_model.requires_grad_(False)
+        reward_device = torch.cuda.device_count() - 1
+        reward_model = reward_model.half().to(reward_device)
+        reward_batch_size = 64
+        delta_reward = True
+
+        def get_reward(samples):
+            input = reward_tokenizer(
+                samples,
+                padding=True,
+                truncation=True,
+                max_length=768,
+                return_tensors="pt",
+            ).to(reward_device)
+
+            mbs = reward_batch_size
+            out = []
+            for i in range(math.ceil(len(samples) / mbs)):
+                batch_ixs = slice(i * mbs, (i + 1) * mbs)
+                input_ids = input.input_ids[batch_ixs]
+                attention_mask = input.attention_mask[batch_ixs]
+                rewards = reward_model(input_ids, attention_mask)
+                out.extend(rewards)
+            return torch.hstack(out)
+
+        def reward_fn(samples, prompts, original_output, **kwargs):
+            # samples = [s + reward_tokenizer.eos_token for s in samples]
+            # Fix: eos_token is appended in trainer
+            samples = [s for s in samples]
+            rewards = get_reward(samples)
+
+            if not delta_reward:
+                return rewards
+
+            original_samples = [p + o + reward_tokenizer.eos_token for p, o in zip(prompts, original_output)]
+            # original_samples = [p + o for p, o in zip(prompts, original_output)]
+            original_rewards = get_reward(original_samples)
+            return rewards - original_rewards
+
     else:
-        raise ValueError(f'Unsupported strategy "{args.strategy}"')
+        reward_fn = True
 
-    # configure model
-    with strategy.model_init_context():
-        if args.model == 'bloom':
-            model = BLOOMPPO(pretrained=args.pretrain, freeze_layer_ratio=args.freeze_layer_ratio)
-        else:
-            raise ValueError(f'Unsupported actor model "{args.model}"')
-    
-    ref_model = create_reference_model(model)
+    return reward_fn
 
-    if args.rm_model == None:
-        rm_model_name = args.model
-    else:
-        rm_model_name = args.rm_model
+def main(hparams={}):
+    config = TRLConfig.update(default_config, hparams)
 
-    with strategy.model_init_context():
-        if rm_model_name == 'bloom':
-            reward_model = BLOOMRM(pretrained=args.rm_pretrain)
-        else:
-            raise ValueError(f'Unsupported reward model "{rm_model_name}"')
+    dataset = jload('data/prompt_data.json')
+    prompts = [{"prompt": x["query"], "original_output": x["response"]} for x in dataset[500:]]
+    eval_prompts = [{"prompt": x["query"], "original_output": x["response"]} for x in dataset[:500]]
+    reward_fn = create_reward_fn()
 
-    if args.strategy != 'colossalai_gemini':
-        model.to(torch.float16).to(torch.cuda.current_device())
-        ref_model.to(torch.float16).to(torch.cuda.current_device())
-        reward_model.to(torch.float16).to(torch.cuda.current_device())
-
-    reward_model.eval()
-    reward_model.requires_grad_(False)
-
-    # configure optimizer
-    if args.strategy.startswith('colossalai'):
-        optim = HybridAdam(model.parameters(), lr=args.lr)
-    else:
-        optim = Adam(model.parameters(), lr=args.lr)
-
-    # configure tokenizer
-    if args.model == 'bloom':
-        tokenizer = BloomTokenizerFast.from_pretrained(args.pretrain)
-        tokenizer.pad_token = tokenizer.eos_token
-    else:
-        raise ValueError(f'Unsupported model "{args.model}"')
-
-    if rm_model_name == 'bloom':
-        rm_tokenizer = BloomTokenizerFast.from_pretrained(args.rm_pretrain)
-        tokenizer.pad_token = tokenizer.eos_token
-    else:
-        raise ValueError(f'Unsupported model "{args.model}"')
-
-    tokenizer.truncation_side = 'left'
-    rm_tokenizer.truncation_side = 'left'
-    rm_tokenizer.padding_side = 'right'
-    
-    # TODO
-    prompt_dataset = PromptDataset(tokenizer=tokenizer, data_path=args.prompt_path, max_length=args.prompt_max_length, max_datasets_size=args.max_datasets_size)
-    if dist.is_initialized() and dist.get_world_size() > 1:
-        prompt_sampler = DistributedSampler(prompt_dataset, shuffle=True, seed=42, drop_last=True)
-    data_collator = DataCollatorForPromptDataset(tokenizer=tokenizer)
-    prompt_dataloader = DataLoader(prompt_dataset,
-                                   shuffle=(prompt_sampler is None),
-                                   sampler=prompt_sampler,
-                                   batch_size=args.batch_size,
-                                   collate_fn=data_collator)
-    
-    
-
-    if args.ptx_coef > 0:
-        raise NotImplementedError()
-        # TODO
-    else:
-        pretrain_dataloader = None
-
-    (model, optim) = strategy.prepare((model, optim))
-        
-    trainer = PPOTrainer(
-        model,
-        ref_model,
-        reward_model,
-        strategy,
-        optim,
-        lr_scheduler=None,
-        tokenizer=tokenizer,
-        dataloader=prompt_dataloader,
-        batch_size=args.batch_size,
-        mini_batch_size=args.mini_batch_size,
-        ppo_epochs=args.ppo_epochs,
-        accumulation_steps=args.accumulation_steps,
-        kl_coef=args.kl_coef,
-        vf_coef=args.vf_coef
+    trainer = trlx.train(
+        prompts=prompts,
+        eval_prompts=eval_prompts,
+        reward_fn=reward_fn,
+        config=config,
+        stop_sequences=["<Human>", "<Assistant>"],
     )
-
-    trainer.fit(rm_tokenizer, path=args.save_path, max_length=args.max_length, reward_baseline=args.reward_baseline, save_interval=50)
-
-    # save model checkpoint after fitting
-    trainer.save_model(args.save_path, only_rank0=True, tokenizer=tokenizer)
-    # save optimizer checkpoint on all ranks
-    if args.need_optim_ckpt:
-        strategy.save_optimizer(optim,
-                                'optim_checkpoint_prompts_%d.pt' % (torch.cuda.current_device()),
-                                only_rank0=False)
+    trainer.save_pretrained("outputs/bloom-1b7-ppo/hf_model")
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--prompt_path', type=str, default=None, help='path to the prompt dataset')
-    parser.add_argument('--pretrain_dataset', type=str, default=None, help='path to the pretrained dataset')
-    parser.add_argument('--strategy',
-                        choices=['naive', 'ddp', 'colossalai_gemini', 'colossalai_zero2'],
-                        default='naive',
-                        help='strategy to use')
-    parser.add_argument('--model', default='gpt2', choices=['gpt2', 'bloom', 'opt', 'llama', 'roberta'])
-    parser.add_argument('--pretrain', type=str, default=None)
-    parser.add_argument('--freeze_layer_ratio', type=float, default=0.67)
-    parser.add_argument('--rm_model', default=None, choices=['gpt2', 'bloom', 'opt', 'llama', 'roberta'])
-    parser.add_argument('--rm_pretrain', type=str, default=None)
-    parser.add_argument('--save_path', type=str, default='outputs/ppo')
-    parser.add_argument('--need_optim_ckpt', type=bool, default=False)
-    parser.add_argument('--ppo_epochs', type=int, default=4)
-    parser.add_argument('--batch_size', type=int, default=4)
-    # parser.add_argument('--generate_time_per_turn', type=int, default=1)
-    parser.add_argument('--mini_batch_size', type=int, default=2)
-    parser.add_argument('--lora_rank', type=int, default=0, help="low-rank adaptation matrices rank")
-    parser.add_argument('--kl_coef', type=float, default=0.1)
-    parser.add_argument('--vf_coef', type=float, default=0.05)
-    parser.add_argument('--ptx_coef', type=float, default=0.0)
-    parser.add_argument('--prompt_max_length', type=int, default=448)
-    parser.add_argument('--max_length', type=int, default=768)
-    
-    parser.add_argument('--lr', type=float, default=5e-6)
-    
-    parser.add_argument('--accumulation_steps', type=int, default=1)
-    parser.add_argument('--max_datasets_size', type=int, default=None)
-    parser.add_argument('--reward_baseline', type=int, default=0)
-    
-    args = parser.parse_args()
-    main(args)
+if __name__ == "__main__":
+    hparams = {} if len(sys.argv) == 1 else json.loads(sys.argv[1])
+    main(hparams)

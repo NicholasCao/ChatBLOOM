@@ -37,5 +37,5 @@ class RewardModel(LoRAModule):
 
     def forward(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         outputs = self.model(input_ids, attention_mask=attention_mask)
-        value = outputs['logits']
+        value = outputs['logits'].squeeze(-1)
         return value
