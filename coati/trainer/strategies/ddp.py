@@ -9,7 +9,6 @@ import torch.distributed as dist
 import torch.nn as nn
 from coati.models.base import LM, Actor, RewardModel
 from coati.models.lora import LoraLinear
-from coati.replay_buffer import ReplayBuffer
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
@@ -52,23 +51,6 @@ class DDPStrategy(NaiveStrategy):
     def setup_model(self, model: nn.Module) -> nn.Module:
         device = torch.cuda.current_device()
         return DDP(model, device_ids=[device])
-
-    def setup_dataloader(self, replay_buffer: ReplayBuffer, pin_memory: bool = False) -> DataLoader:
-        # DDP only mode, replay buffers on each rank are different.
-        # sampler = DistributedSampler(replay_buffer,
-        #                              num_replicas=dist.get_world_size(),
-        #                              rank=dist.get_rank(),
-        #                              shuffle=True,
-        #                              seed=self.seed,
-        #                              drop_last=True)
-        return DataLoader(
-            replay_buffer,
-            batch_size=replay_buffer.sample_batch_size,
-        #   sampler=sampler,
-            shuffle=True,
-            drop_last=True,
-            pin_memory=pin_memory,
-            collate_fn=replay_buffer.collate_fn)
 
     @staticmethod
     def _unwrap_actor(actor: Actor) -> nn.Module:

@@ -6,7 +6,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from coati.models.base import LM, Actor, Critic, RewardModel
-from coati.replay_buffer import ReplayBuffer
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -44,10 +43,6 @@ class Strategy(ABC):
 
     @abstractmethod
     def setup_optimizer(self, optimizer: Optimizer, model: nn.Module) -> Optimizer:
-        pass
-
-    @abstractmethod
-    def setup_dataloader(self, replay_buffer: ReplayBuffer, pin_memory: bool = False) -> DataLoader:
         pass
 
     def model_init_context(self):
