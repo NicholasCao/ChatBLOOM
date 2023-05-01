@@ -23,18 +23,19 @@ default_config = TRLConfig(
     train=TrainConfig(
         seq_length=768,
         epochs=10000,
-        total_steps=5000,
+        total_steps=2500,
         batch_size=4,
         checkpoint_interval=1000,
         eval_interval=500,
         pipeline="PromptPipeline",
         trainer="AcceleratePPOTrainer",
         checkpoint_dir="outputs/bloom-1b7-ppo",
+        save_optimizer=False
     ),
-    model=ModelConfig(model_path="outputs/bloom-1b7-sft", num_layers_unfrozen=6),
+    model=ModelConfig(model_path="outputs/bloom-1b7-sft", num_layers_unfrozen=4),
     tokenizer=TokenizerConfig(tokenizer_path="outputs/bloom-1b7-sft", truncation_side="left"),
     optimizer=OptimizerConfig(name="adamw", kwargs=dict(lr=5e-6, betas=(0.9, 0.95), eps=1.0e-8, weight_decay=1.0e-6)),
-    scheduler=SchedulerConfig(name="cosine_annealing", kwargs=dict(T_max=10000, eta_min=1e-6)),
+    scheduler=SchedulerConfig(name="cosine_annealing", kwargs=dict(T_max=10000, eta_min=5e-6)),
     method=PPOConfig(
         name="PPOConfig",
         num_rollouts=64,
@@ -60,8 +61,6 @@ default_config = TRLConfig(
         ),
     ),
 )
-
-import io
 
 def _make_r_io_base(f, mode: str):
     if not isinstance(f, io.IOBase):

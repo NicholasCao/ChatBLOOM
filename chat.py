@@ -14,8 +14,7 @@ def chat(args, model, tokenizer, history):
                             temperature=args.temperature,
                             top_k=args.top_k,
                             top_p=args.top_p,
-                            early_stopping=True,
-                            repetition_penalty=1.1,
+                            repetition_penalty=1.05,
                             eos_token_id=tokenizer.eos_token_id,
                             pad_token_id=tokenizer.eos_token_id)
     

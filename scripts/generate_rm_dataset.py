@@ -23,8 +23,7 @@ def generate(args, model, tokenizer, input_ids, attention_mask):
         temperature=args.temperature,
         top_k=args.top_k,
         top_p=args.top_p,
-        early_stopping=True,
-        repetition_penalty=1.1,
+        repetition_penalty=1.05,
         eos_token_id=tokenizer.eos_token_id,
         pad_token_id=tokenizer.eos_token_id
     )
@@ -119,7 +118,7 @@ if __name__ == '__main__':
     parser.add_argument('--prompt_max_length', type=int, default=448)
     parser.add_argument('--max_length', type=int, default=768)
     parser.add_argument('--temperature', type=float, default=0.95)
-    parser.add_argument('--top_k', type=int, default=100)
+    parser.add_argument('--top_k', type=int, default=1000)
     parser.add_argument('--top_p', type=float, default=None)
     parser.add_argument('--data_path', type=str, default='data/rm_data.json')
     parser.add_argument('--output_path', type=str, default='data/generated_rm_data.json')
