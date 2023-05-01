@@ -23,7 +23,7 @@ default_config = TRLConfig(
     train=TrainConfig(
         seq_length=768,
         epochs=10000,
-        total_steps=2500,
+        total_steps=3000,
         batch_size=4,
         checkpoint_interval=1000,
         eval_interval=500,
@@ -54,7 +54,7 @@ default_config = TRLConfig(
         ref_std=None,
         cliprange_reward=10,
         gen_kwargs=dict(
-            max_new_tokens=320,
+            max_new_tokens=384,
             top_k=0,
             top_p=1.0,
             do_sample=True,
@@ -124,7 +124,7 @@ def create_reward_fn():  # noqa:  C901
         def reward_fn(samples, prompts, original_output, **kwargs):
             # samples = [s + reward_tokenizer.eos_token for s in samples]
             # Fix: eos_token is appended in trainer
-            samples = [s for s in samples]
+            samples = [s if s.endswith(reward_tokenizer.eos_token) else s + reward_tokenizer.eos_token for s in samples]
             rewards = get_reward(samples)
 
             if not delta_reward:
@@ -148,15 +148,13 @@ def main(hparams={}):
     eval_prompts = [{"prompt": x["query"], "original_output": x["response"]} for x in dataset[:500]]
     reward_fn = create_reward_fn()
 
-    trainer = trlx.train(
+    trlx.train(
         prompts=prompts,
         eval_prompts=eval_prompts,
         reward_fn=reward_fn,
         config=config,
         stop_sequences=["<Human>", "<Assistant>"],
     )
-    trainer.save_pretrained("outputs/bloom-1b7-ppo/hf_model")
-
 
 if __name__ == "__main__":
     hparams = {} if len(sys.argv) == 1 else json.loads(sys.argv[1])
