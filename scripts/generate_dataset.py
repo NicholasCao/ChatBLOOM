@@ -54,10 +54,10 @@ def preprocess_sharegpt(dataset, tokenizer):
 
             if conv['from'] in ['human', 'user']:
                 # 0 from human
-                texts.append(('<Human>: ' + conv['value'].replace('\n\n', '\n') + '<eoh>', 0))
+                texts.append(('<Human>:' + conv['value'].replace('\n\n', '\n'), 0))
             elif conv['from'] in ['gpt', 'chatgpt', 'bing', 'bard']:
                 # 1 from ai
-                texts.append(('<Assistant>: ' + conv['value'].replace('\n\n', '\n') + '<eoa>', 1))
+                texts.append(('<Assistant>:' + conv['value'].replace('\n\n', '\n'), 1))
             elif conv['from'] == 'system':
                 continue
             else:
@@ -85,7 +85,7 @@ def preprocess_sharegpt(dataset, tokenizer):
             continue
 
         query += '<Assistant>:'
-        response = ' ' + texts[-1][0].replace('<Assistant>:', '').strip()
+        response = texts[-1][0].replace('<Assistant>:', '').strip()
     
         if 'gpt' not in response.lower():
             new_data.append({'query': query, 'response': response})
@@ -117,8 +117,8 @@ def preprocess_instruct_dataset(dataset, filter: bool = False, tokenizer = None,
     for data in tqdm(dataset):
         query = data['instruction'] + data['input']
         
-        query = '<Human>: ' + query.strip().replace('\n\n', '\n') + '<eoh> <Assistant>:'
-        response = ' ' + data['output'].strip().replace('\n\n', '\n') + '<eoa>'
+        query = '<Human>:' + query.strip().replace('\n\n', '\n') + '<Assistant>:'
+        response = data['output'].strip().replace('\n\n', '\n')
         
         if filter:
             # filter some short query
@@ -167,13 +167,13 @@ def preprocess_multiturn_chat(dataset, filter: bool = True, tokenizer = None, ma
     
     for data in tqdm(dataset):
 
-        query = data['instruction'].strip().replace('\n\n', '\n').replace('\nAssistant:', '<eoh> Assistant:')
-        query = re.sub('Assistant:(?=\S+)', 'Assistant: ', query)
-        query = query.replace('\nHuman:', '<eoa> Human:')
-        query = re.sub('Human:(?=\S+)', 'Human: ', query)
+        query = data['instruction'].strip().replace('\n\n', '\n').replace('\nAssistant:', 'Assistant:')
+        # query = re.sub('Assistant:(?=\S+)', 'Assistant: ', query)
+        query = query.replace('\nHuman:', 'Human:')
+        # query = re.sub('Human:(?=\S+)', 'Human: ', query)
         query = query.replace('Human:', '<Human>:').replace('Assistant:', '<Assistant>:')
         
-        response = ' ' + data['output'].strip().replace('\n\n', '\n') + '<eoa>'
+        response = data['output'].strip().replace('\n\n', '\n')
         
         if filter:
             if len(tokenizer.tokenize(query)) < 50:
@@ -229,11 +229,11 @@ if __name__ == '__main__':
     prompt_data = data[:20000]
     rm_data = data[20000:50000]
     sft_dta = data[50000:] + [{
-        "query": "<Human>: 你好 <eoh><Assistant>:",
-        "response": " 您好！有什么可以帮助您的吗？"
+        "query": "<Human>:你好<Assistant>:",
+        "response": "您好！有什么可以帮助您的吗？"
     }, {
-        "query": "<Human>: 你是谁 <eoh><Assistant>:",
-        "response": " 我是一个人工智能语言模型助手，可以进行自然语言交互，并尝试回答您的问题和提供帮助。"
+        "query": "<Human>:你是谁<Assistant>:",
+        "response": "我是一个人工智能语言模型助手，可以进行自然语言交互，并尝试回答您的问题和提供帮助。"
     }]
     
     with open(args.sft_output_path, 'w') as file:

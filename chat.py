@@ -24,8 +24,8 @@ def chat(args, model, tokenizer, history):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_path', type=str, default='nicholascao/chatbloom-1b7-sft')
-    parser.add_argument('--prompt_max_length', type=int, default=448)
-    parser.add_argument('--max_length', type=int, default=768)
+    parser.add_argument('--prompt_max_length', type=int, default=512)
+    parser.add_argument('--max_length', type=int, default=1024)
     parser.add_argument('--temperature', type=float, default=0.8)
     parser.add_argument('--top_k', type=int, default=50)
     parser.add_argument('--top_p', type=float, default=0.9)
@@ -53,9 +53,9 @@ if __name__ == '__main__':
             history = ''
             continue
 
-        history += f'<Human>: {inp} <eoh> <Assistant>:'
-        response = chat(args, model, tokenizer, history).replace('<eoa>', '')
-        history += response + '<eoa>'
-        print(f'<Assistant>:{response}')
+        history += f'<Human>:{inp}<Assistant>:'
+        response = chat(args, model, tokenizer, history)
+        history += response
+        print(f'<Assistant>: {response}')
     
     print('Bye ~ 👋')

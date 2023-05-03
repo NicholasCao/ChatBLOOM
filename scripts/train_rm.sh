@@ -4,10 +4,10 @@ torchrun --standalone --nproc_per_node=4 train_rm.py \
     --strategy colossalai_zero2 \
     --loss_fn 'log_sig'\
     --save_path  outputs/bloom-1b7-rm \
-    --batch_size 4 \
-    --accumulation_steps 2 \
+    --batch_size 3 \
+    --accumulation_steps 3 \
     --max_epochs 1 \
     --lr 5e-6 \
     --data_path data/generated_rm_data.json \
-    --max_len 768 \
+    --max_len 1024 \
     --freeze_layer_ratio 0.33

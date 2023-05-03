@@ -90,8 +90,6 @@ def train(args):
     add_tokens(model, tokenizer, {
         '<Human>': ' Human',
         '<Assistant>': ' Assistant',
-        '<eoh>': '\n',
-        '<eoa>': '\n'
     })
 
     # configure optimizer

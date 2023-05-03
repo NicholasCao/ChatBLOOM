@@ -21,10 +21,10 @@ from trlx.data.default_configs import (
 
 default_config = TRLConfig(
     train=TrainConfig(
-        seq_length=768,
+        seq_length=1024,
         epochs=10000,
-        total_steps=3000,
-        batch_size=4,
+        total_steps=2000,
+        batch_size=3,
         checkpoint_interval=1000,
         eval_interval=500,
         pipeline="PromptPipeline",
@@ -54,7 +54,7 @@ default_config = TRLConfig(
         ref_std=None,
         cliprange_reward=10,
         gen_kwargs=dict(
-            max_new_tokens=384,
+            max_new_tokens=512,
             top_k=0,
             top_p=1.0,
             do_sample=True,
@@ -107,7 +107,7 @@ def create_reward_fn():  # noqa:  C901
                 samples,
                 padding=True,
                 truncation=True,
-                max_length=768,
+                max_length=1024,
                 return_tensors="pt",
             ).to(reward_device)
 

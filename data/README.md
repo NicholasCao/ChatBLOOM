@@ -15,7 +15,7 @@ python optional_clean.py --in sharegpt_20230401_clean.json --out sharegpt_202304
 
 python merge.py sharegpt_20230401_clean_lang_zh.json sharegpt_20230401_clean_lang_en.json sharegpt_20230401_clean_lang.json
 
-python split_long_conversation.py --in sharegpt_20230401_clean_lang.json --out sharegpt_20230401_clean_lang_split2.json --model-name bigscience/bloom-1b7 --max-length 800
+python split_long_conversation.py --in sharegpt_20230401_clean_lang.json --out sharegpt_20230401_clean_lang_split2.json --model-name bigscience/bloom-1b7 --max-length 1200
 ```
 
 ## GPT-4-LLM
