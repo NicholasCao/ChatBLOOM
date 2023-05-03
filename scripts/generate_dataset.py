@@ -87,7 +87,7 @@ def preprocess_sharegpt(dataset, tokenizer):
         query += '<Assistant>:'
         response = texts[-1][0].replace('<Assistant>:', '').strip()
     
-        if 'gpt' not in response.lower():
+        if 'gpt' not in response.lower() and 'openai' not in response.lower():
             new_data.append({'query': query, 'response': response})
         
     print(f'ShareGPT example: {new_data[0]}.')
