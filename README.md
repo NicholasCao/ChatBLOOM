@@ -56,8 +56,8 @@ The dataset format as:
 ```json
 [
     {
-        "query": "<Human>: {query} <eoh> <Assistant>:",
-        "response": " {response} <eoa>"
+        "query": "<Human>:{query}<Assistant>:",
+        "response": "{response}"
     },
     ...
 ]
